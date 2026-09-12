@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.font-script {
+  font-family: var(--font-script), serif;
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Cible tactile confortable partout (priorité mobile, cf. brief §23) */
+button,
+a {
+  touch-action: manipulation;
+}
+
+/* Logo qui "respire" doucement : léger zoom + rotation + halo */
+@keyframes qahwa-breathe {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 0 rgba(255, 107, 0, 0));
+  }
+  50% {
+    transform: scale(1.05) rotate(-2deg);
+    filter: drop-shadow(0 0 14px rgba(255, 107, 0, 0.55));
+  }
+}
+.qahwa-logo-breathe {
+  animation: qahwa-breathe 4s ease-in-out infinite;
+}
+
+/* Stickers flottants, légèrement inclinés */
+@keyframes qahwa-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--sticker-tilt, -4deg));
+  }
+  50% {
+    transform: translateY(-10px) rotate(var(--sticker-tilt, -4deg));
+  }
+}
+.qahwa-sticker {
+  animation: qahwa-float 3.5s ease-in-out infinite;
+}
+
+/* Halo pulsant en continu autour du CTA principal */
+@keyframes qahwa-cta-glow {
+  0%,
+  100% {
+    box-shadow:
+      6px 6px 0px 0px #0a0a0a,
+      0 0 0px rgba(255, 107, 0, 0.6);
+  }
+  50% {
+    box-shadow:
+      6px 6px 0px 0px #0a0a0a,
+      0 0 26px rgba(255, 107, 0, 0.85);
+  }
+}
+.qahwa-cta {
+  animation: qahwa-cta-glow 2.2s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Reflet qui balaie l'intérieur du CTA en boucle */
+.qahwa-cta::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 100%
+  );
+  animation: qahwa-cta-shine 2.8s ease-in-out infinite;
+}
+@keyframes qahwa-cta-shine {
+  0% {
+    left: -60%;
+  }
+  60%,
+  100% {
+    left: 130%;
+  }
+}
+
