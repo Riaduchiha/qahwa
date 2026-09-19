@@ -98,33 +98,21 @@ export default function KdsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function markReady(item: OrderItem) {
-  const { error } = await supabase
-    .from("order_items")
-    .update({ status: "ready" })
-    .eq("id", item.id);
+   async function markReady(item: OrderItem) {
+    const res = await fetch("/api/poste/mark-ready", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_id: item.id }),
+    });
 
-  if (error) {
-    alert("Erreur : " + error.message);
-    return;
+    if (!res.ok) {
+      const { error } = await res.json();
+      alert("Erreur : " + error);
+      return;
+    }
+
+    loadOrders();
   }
-
-  // Verification fraiche en base, pas sur les donnees deja affichees a l'ecran,
-  // pour eviter qu'une commande reste bloquee si deux articles sont marques
-  // prets en meme temps.
-  const { data: freshItems } = await supabase
-    .from("order_items")
-    .select("status")
-    .eq("order_id", item.order_id);
-
-  const allReady = (freshItems ?? []).every((i) => i.status === "ready");
-  if (allReady) {
-    await supabase
-      .from("orders")
-      .update({ status: "prete" })
-      .eq("id", item.order_id);
-  }
-}
 
   const filteredOrders = orders
     .map((order) => ({
