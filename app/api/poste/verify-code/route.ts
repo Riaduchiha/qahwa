@@ -20,5 +20,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Code non reconnu." }, { status: 404 });
   }
 
-  return NextResponse.json({ employee: emp });
+  const { data: lastEvent } = await supabase
+    .from("employee_clock_events")
+    .select("event_type")
+    .eq("employee_id", emp.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const nextAction = !lastEvent || lastEvent.event_type === "out" ? "in" : "out";
+
+  return NextResponse.json({ employee: emp, nextAction });
 }

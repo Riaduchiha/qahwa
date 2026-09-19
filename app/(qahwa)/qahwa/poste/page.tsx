@@ -28,6 +28,7 @@ export default function PostePage() {
   const [step, setStep] = useState<Step>("checking");
   const [code, setCode] = useState("");
   const [employee, setEmployee] = useState<Employee | null>(null);
+  const [actionType, setActionType] = useState<"in" | "out">("in");
   const [errorMsg, setErrorMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -96,8 +97,9 @@ export default function PostePage() {
       return;
     }
 
-    const { employee: emp } = await res.json();
+    const { employee: emp, nextAction } = await res.json();
     setEmployee(emp as Employee);
+    setActionType(nextAction as "in" | "out");
     setStep("camera");
 
     try {
@@ -131,33 +133,21 @@ export default function PostePage() {
           return;
         }
 
-        const fileName = `${employee.id}-${Date.now()}.jpg`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from("employee-photos")
-          .upload(fileName, blob, { contentType: "image/jpeg" });
+        const formData = new FormData();
+        formData.append("employee_id", employee.id);
+        formData.append("event_type", "in");
+        formData.append("photo", blob, "photo.jpg");
 
-        if (uploadError) {
-          alert("Erreur upload photo : " + uploadError.message);
-        }
+        const res = await fetch("/api/poste/clock-event", {
+          method: "POST",
+          body: formData,
+        });
 
-        let photoUrl: string | null = null;
-        if (uploadData) {
-          const { data: publicUrlData } = supabase.storage
-            .from("employee-photos")
-            .getPublicUrl(uploadData.path);
-          photoUrl = publicUrlData.publicUrl;
-        }
-
-        const { error: insertError } = await supabase
-          .from("employee_clock_events")
-          .insert({
-            employee_id: employee.id,
-            event_type: "in",
-            photo_url: photoUrl,
-          });
-
-        if (insertError) {
-          alert("Erreur enregistrement : " + insertError.message);
+        if (!res.ok) {
+          const { error } = await res.json();
+          alert("Erreur enregistrement : " + error);
+          setSaving(false);
+          return;
         }
 
         if (streamRef.current) {
@@ -297,7 +287,7 @@ export default function PostePage() {
       {step === "camera" && employee && (
         <div className="relative z-10 flex flex-col items-center gap-4">
           <h1 className="font-display text-xl uppercase text-qahwa-text">
-            {employee.name} — Arrivee
+            {employee.name} — {actionType === "in" ? "Arrivee" : "Depart"}
           </h1>
           <p className="text-sm text-qahwa-muted">
             Regarde la camera et prends la photo
