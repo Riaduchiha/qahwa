@@ -85,6 +85,7 @@ export default function MenuManager() {
       price: 0,
       is_available: true,
       display_order: 0,
+      station: "barista",
     });
     load();
   }
@@ -174,8 +175,7 @@ export default function MenuManager() {
             {cat.products.map((p) => (
               <div
                 key={p.id}
-                className="grid grid-cols-1 gap-2 rounded-lg border border-qahwa-border p-3 sm:grid-cols-[56px_2fr_1fr_1fr_auto_auto]"
-              >
+                className="grid grid-cols-1 gap-2 rounded-lg border border-qahwa-border p-3 sm:grid-cols-[56px_2fr_1fr_1fr_1fr_auto_auto]"             >
                 <label className="relative flex h-14 w-14 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-qahwa-border bg-qahwa-panel2">
                   {p.image_url ? (
                     <Image
@@ -214,14 +214,25 @@ export default function MenuManager() {
                   placeholder="Description"
                 />
                 <input
-                  type="number"
-                  defaultValue={p.price}
-                  onBlur={(e) =>
-                    updateProduct(p.id, { price: Number(e.target.value) || 0 })
-                  }
-                  className={inputClass}
-                  placeholder="Prix (DA)"
-                />
+  type="number"
+  defaultValue={p.price}
+  onBlur={(e) =>
+    updateProduct(p.id, { price: Number(e.target.value) || 0 })
+  }
+  className={inputClass}
+  placeholder="Prix (DA)"
+/>
+<select
+  defaultValue={p.station || "barista"}
+  onChange={(e) =>
+    updateProduct(p.id, { station: e.target.value as Product["station"] })
+  }
+  className={inputClass}
+>
+  <option value="barista">Barista</option>
+  <option value="bar">Bar</option>
+  <option value="cuisine">Cuisine</option>
+</select>
                 <button
                   onClick={() =>
                     updateProduct(p.id, { is_available: !p.is_available })

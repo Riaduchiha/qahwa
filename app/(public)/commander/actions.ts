@@ -95,7 +95,6 @@ export async function createOrder(
   const stationByProduct = new Map(
     (products ?? []).map((p) => [p.id, p.station])
   );
-
   const { error: itemsError } = await supabase.from("order_items").insert(
     input.items.map((item) => ({
       order_id: order.id,
@@ -111,6 +110,51 @@ export async function createOrder(
 
   if (itemsError) {
     return { error: itemsError.message };
+  }
+
+  // Deduction automatique du stock des ingredients selon les recettes
+  // configurees dans Stock -> Fiches Recettes.
+  try {
+    const { data: recipeLines } = await supabase
+      .from("product_ingredients")
+      .select("product_id, ingredient_id, quantity_used")
+      .in("product_id", productIds);
+
+    if (recipeLines && recipeLines.length > 0) {
+      const quantityByProduct = new Map(
+        input.items.map((item) => [item.productId, item.quantity])
+      );
+
+      const deductionByIngredient = new Map<string, number>();
+      for (const line of recipeLines) {
+        const orderedQty = quantityByProduct.get(line.product_id) ?? 0;
+        if (orderedQty <= 0) continue;
+        const toDeduct = line.quantity_used * orderedQty;
+        deductionByIngredient.set(
+          line.ingredient_id,
+          (deductionByIngredient.get(line.ingredient_id) ?? 0) + toDeduct
+        );
+      }
+
+      const ingredientIds = [...deductionByIngredient.keys()];
+      if (ingredientIds.length > 0) {
+        const { data: currentIngredients } = await supabase
+          .from("ingredients")
+          .select("id, quantity_in_stock")
+          .in("id", ingredientIds);
+
+        for (const ing of currentIngredients ?? []) {
+          const toDeduct = deductionByIngredient.get(ing.id) ?? 0;
+          const newQuantity = Math.max(0, ing.quantity_in_stock - toDeduct);
+          await supabase
+            .from("ingredients")
+            .update({ quantity_in_stock: newQuantity })
+            .eq("id", ing.id);
+        }
+      }
+    }
+  } catch {
+    // La deduction de stock ne doit jamais faire echouer la commande elle-meme.
   }
 
   return { orderId: order.id, orderNumber: order.order_number };

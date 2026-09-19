@@ -46,6 +46,23 @@ export default function CategoryShowcase({
       id={category.slug}
       className="relative scroll-mt-20 flex min-h-[640px] flex-col justify-center overflow-hidden bg-qahwa-noir py-14 sm:min-h-[760px]"
     >
+      <style>{`
+        @keyframes qahwa-float {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-10px); }
+        }
+        @keyframes qahwa-pop-in {
+          0% { opacity: 0; transform: scale(0.9) translateY(8px); }
+          100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .qahwa-float {
+          animation: qahwa-float 4s ease-in-out infinite;
+        }
+        .qahwa-pop-in {
+          animation: qahwa-pop-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+      `}</style>
+
       <div key={current.id} className="absolute inset-0">
         {current.image_url ? (
           <Image
@@ -100,17 +117,25 @@ export default function CategoryShowcase({
 
           <div
             key={current.id}
-            className="relative z-20 mx-2 w-full max-w-[260px] animate-[fadein_0.3s_ease] sm:mx-4 sm:max-w-sm"
+            className="qahwa-pop-in relative z-20 mx-2 w-full max-w-[300px] sm:mx-4 sm:max-w-md"
           >
-            <div className="relative h-64 w-full sm:h-80">
+            <div className="relative mx-auto h-72 w-full sm:h-[26rem]">
               {current.image_url ? (
-                <Image
-                  src={current.image_url}
-                  alt={current.name}
-                  fill
-                  className="object-contain drop-shadow-2xl"
-                  priority
-                />
+                <>
+                  <div
+                    aria-hidden
+                    className="absolute left-1/2 top-1/2 h-[85%] w-[85%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-qahwa-orange/25 blur-3xl"
+                  />
+                  <div className="qahwa-float relative h-full w-full">
+                    <Image
+                      src={current.image_url}
+                      alt={current.name}
+                      fill
+                      className="object-contain drop-shadow-2xl"
+                      priority
+                    />
+                  </div>
+                </>
               ) : (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-qahwa-orange/30 bg-gradient-to-b from-qahwa-orange/10 to-transparent">
                   <svg
@@ -175,7 +200,7 @@ export default function CategoryShowcase({
 
             <button
               onClick={handleAdd}
-              className="qahwa-cta mt-3 flex w-full items-center justify-between rounded-full border-2 border-qahwa-noir bg-qahwa-orange py-3 pl-6 pr-2 font-display uppercase text-qahwa-noir shadow-brutal"
+              className="qahwa-cta mt-3 flex w-full items-center justify-between rounded-full border-2 border-qahwa-noir bg-qahwa-orange py-3 pl-6 pr-2 font-display uppercase text-qahwa-noir shadow-brutal transition-transform active:scale-95"
             >
               <span>{added ? "Ajoute !" : "Ajouter"}</span>
               <span className="rounded-full bg-qahwa-noir px-3 py-1.5 text-sm text-qahwa-orange">

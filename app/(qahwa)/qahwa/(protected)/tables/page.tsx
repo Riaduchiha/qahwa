@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -11,6 +10,30 @@ import type {
   Product,
 } from "@/types/database";
 import type { CartItem } from "@/lib/store/cart";
+
+function playCashSound() {
+  const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const now = ctx.currentTime;
+
+  const notes = [
+    { freq: 1046.5, delay: 0 },
+    { freq: 1568, delay: 0.09 },
+  ];
+
+  notes.forEach(({ freq, delay }) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, now + delay);
+    gain.gain.setValueAtTime(0, now + delay);
+    gain.gain.linearRampToValueAtTime(0.2, now + delay + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now + delay);
+    osc.stop(now + delay + 0.36);
+  });
+}
 
 type TableStatus = "vide" | "reservee" | "attente" | "prete" | "servie";
 
@@ -234,6 +257,11 @@ export default function QahwaTablesPage() {
   async function markPaid() {
     if (!checkoutOrder || !checkoutTable) return;
     setClosing(true);
+    try {
+      playCashSound();
+    } catch {
+      // ignore si le navigateur bloque le son
+    }
     await supabase
       .from("orders")
       .update({ status: "livree" })
@@ -243,6 +271,7 @@ export default function QahwaTablesPage() {
       .update({ reserved: false })
       .eq("id", checkoutTable.id);
     setClosing(false);
+
     closeCheckout();
     load();
   }

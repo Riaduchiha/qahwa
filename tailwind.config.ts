@@ -6,28 +6,30 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        qahwa: {
-          noir: "#0A0A0A",
-          orange: "#FF6B00",
-          "orange-vif": "#FF8A2B",
-          blanc: "#FFFFFF",
-          creme: "#FFF3E8",
-          // alias conservés pour compatibilité avec le code existant
-          black: "#0A0A0A",
-          red: "#FF6B00",
-          yellow: "#FF8A2B",
-          green: "#0cfd6c",
-          rouge: "#E23D3D",
-          ink: "#0A0A0A",
-          cream: "#FFF3E8",
-          // Palette sombre pour le gestionnaire (espace QAHWA uniquement)
-          bg: "#121212",
-          panel: "#1B1B1B",
-          panel2: "#232323",
-          border: "#2E2E2E",
-          text: "#EDEDED",
-          muted: "#9A9A9A",
-        },
+       qahwa: {
+  noir: "#0A0A0A",
+  orange: "#FF6B00",
+  "orange-vif": "#FF8A2B",
+  blanc: "#FFFFFF",
+
+  creme: "#0A0A0A",
+
+  black: "#0A0A0A",
+  red: "#FF6B00",
+  yellow: "#FF8A2B",
+  green: "#0cfd6c",
+  rouge: "#E23D3D",
+
+  ink: "#0A0A0A",
+  cream: "#0A0A0A",
+
+  bg: "#121212",
+  panel: "#1B1B1B",
+  panel2: "#232323",
+  border: "#2E2E2E",
+  text: "#FFFFFF",
+  muted: "#9A9A9A",
+},
       },
       keyframes: {
         "qahwa-blink": {

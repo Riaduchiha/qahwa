@@ -58,7 +58,7 @@ export default function EventAlert() {
 
   return (
     <div
-      className={`fixed top-28 right-4 z-50 w-80 max-w-[90vw] rounded-2xl border ${cardColor.border} ${cardColor.bg} p-4 shadow-2xl backdrop-blur-xl transition-all duration-300 ${
+      className={`w-80 max-w-[90vw] rounded-2xl border ${cardColor.border} ${cardColor.bg} p-4 shadow-2xl backdrop-blur-xl transition-all duration-300 ${
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-3'
       }`}
     >

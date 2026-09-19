@@ -79,10 +79,17 @@ export default function KdsPage() {
         () => loadOrders()
       )
       .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "orders" },
-        () => loadOrders()
-      )
+  "postgres_changes",
+  { event: "UPDATE", schema: "public", table: "orders" },
+  (payload) => {
+    const before = payload.old as { status?: string };
+    const after = payload.new as { status?: string };
+    if (before.status !== "preparation" && after.status === "preparation") {
+      audioRef.current?.play().catch(() => {});
+    }
+    loadOrders();
+  }
+)
       .subscribe();
 
     return () => {
@@ -92,29 +99,32 @@ export default function KdsPage() {
   }, []);
 
   async function markReady(item: OrderItem) {
-    const { error } = await supabase
-      .from("order_items")
-      .update({ status: "ready" })
-      .eq("id", item.id);
+  const { error } = await supabase
+    .from("order_items")
+    .update({ status: "ready" })
+    .eq("id", item.id);
 
-    if (error) {
-      alert("Erreur : " + error.message);
-      return;
-    }
-
-    const order = orders.find((o) => o.id === item.order_id);
-    if (order) {
-      const allReady = order.order_items.every((i) =>
-        i.id === item.id ? true : i.status === "ready"
-      );
-      if (allReady) {
-        await supabase
-          .from("orders")
-          .update({ status: "prete" })
-          .eq("id", order.id);
-      }
-    }
+  if (error) {
+    alert("Erreur : " + error.message);
+    return;
   }
+
+  // Verification fraiche en base, pas sur les donnees deja affichees a l'ecran,
+  // pour eviter qu'une commande reste bloquee si deux articles sont marques
+  // prets en meme temps.
+  const { data: freshItems } = await supabase
+    .from("order_items")
+    .select("status")
+    .eq("order_id", item.order_id);
+
+  const allReady = (freshItems ?? []).every((i) => i.status === "ready");
+  if (allReady) {
+    await supabase
+      .from("orders")
+      .update({ status: "prete" })
+      .eq("id", item.order_id);
+  }
+}
 
   const filteredOrders = orders
     .map((order) => ({

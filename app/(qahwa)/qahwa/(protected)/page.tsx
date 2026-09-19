@@ -1,48 +1,8 @@
 import Link from "next/link";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { Order } from "@/types/database";
 import PendingOrders from "@/components/qahwa/PendingOrders";
+import StatsCards from "@/components/qahwa/StatsCards";
 
-function formatPrice(price: number) {
-  return `${price} DA`;
-}
-
-async function getStats() {
-  const supabase = createSupabaseServerClient();
-
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-
-  const { data: todayOrders } = await supabase
-    .from("orders")
-    .select("*")
-    .gte("created_at", startOfToday.toISOString())
-    .returns<Order[]>();
-
-  const orders = todayOrders ?? [];
-
-  const pending = orders.filter((o) => o.status === "recue").length;
-  const preparation = orders.filter((o) => o.status === "preparation").length;
-  const revenue = orders.reduce((sum, o) => sum + o.total, 0);
-
-  return {
-    todayCount: orders.length,
-    pending,
-    preparation,
-    revenue,
-  };
-}
-
-export default async function QahwaDashboardPage() {
-  const stats = await getStats();
-
-  const cards = [
-    { label: "Commandes du jour", value: stats.todayCount },
-    { label: "En attente", value: stats.pending },
-    { label: "En preparation", value: stats.preparation },
-    { label: "Chiffre d'affaires (jour)", value: formatPrice(stats.revenue) },
-  ];
-
+export default function QahwaDashboardPage() {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -64,21 +24,8 @@ export default async function QahwaDashboardPage() {
           </Link>
         </div>
       </div>
-      <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-        {cards.map((card) => (
-          <div
-            key={card.label}
-            className="rounded-xl border border-qahwa-border bg-qahwa-panel p-4 shadow-panel"
-          >
-            <p className="text-xs uppercase text-qahwa-muted">
-              {card.label}
-            </p>
-            <p className="mt-2 font-display text-2xl text-qahwa-text">
-              {card.value}
-            </p>
-          </div>
-        ))}
-      </div>
+
+      <StatsCards />
 
       <div className="mt-8">
         <h2 className="font-display text-sm uppercase text-qahwa-muted">

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Archivo_Black, Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
@@ -25,6 +25,10 @@ export const metadata: Metadata = {
   description: "Qahwa — coffeeshop à Hydra, Alger",
 };
 
+export const viewport: Viewport = {
+  themeColor: "#111111",
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -35,7 +39,7 @@ export default function RootLayout({
       lang="fr"
       className={`${archivoBlack.variable} ${inter.variable} ${playfair.variable}`}
     >
-      <body className="font-body bg-qahwa-creme text-qahwa-noir antialiased">
+      <body className="font-body bg-qahwa-noir text-qahwa-blanc antialiased">
         {children}
       </body>
     </html>

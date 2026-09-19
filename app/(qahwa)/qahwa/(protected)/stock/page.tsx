@@ -1,7 +1,7 @@
 "use client";
 import Link from 'next/link'
 import ProfitChart from "./ProfitChart";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   createIngredient,
@@ -58,7 +58,7 @@ export default function StockPage() {
   const [addIngId, setAddIngId] = useState("");
   const [addQty, setAddQty] = useState<number>(0);
 
-  const supabase = createSupabaseBrowserClient();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   const loadData = useCallback(async () => {
     const { data: ingData } = await supabase.from("ingredients").select("*").order("name");
@@ -83,7 +83,21 @@ export default function StockPage() {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+
+    const channel = supabase
+      .channel("stock-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ingredients" },
+        () => loadData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (selectedProductId) loadRecipe(selectedProductId);

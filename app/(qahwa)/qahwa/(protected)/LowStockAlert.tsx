@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 
 type Ingredient = {
@@ -15,7 +15,6 @@ function playAlertSound() {
   const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
   const now = ctx.currentTime
 
-  // deux petits bips
   ;[0, 0.18].forEach((delay) => {
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
@@ -36,7 +35,7 @@ export default function LowStockAlert() {
   const [dismissed, setDismissed] = useState(false)
   const [visible, setVisible] = useState(false)
   const hasPlayedSound = useRef(false)
-  const supabase = createSupabaseBrowserClient()
+  const supabase = useMemo(() => createSupabaseBrowserClient(), [])
 
   useEffect(() => {
     async function check() {
@@ -51,12 +50,27 @@ export default function LowStockAlert() {
         try {
           playAlertSound()
         } catch {
-          // navigateur peut bloquer le son avant une interaction, on ignore l'erreur
+          // ignore
         }
       }
     }
+
     check()
-  }, [supabase])
+
+    const channel = supabase
+      .channel('low-stock-alert')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'ingredients' },
+        () => check()
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (lowStock.length > 0 && !dismissed) {
@@ -69,7 +83,7 @@ export default function LowStockAlert() {
 
   return (
     <div
-      className={`fixed top-4 right-4 z-50 w-80 max-w-[90vw] rounded-2xl border border-red-400/30 bg-red-500/15 p-4 shadow-2xl backdrop-blur-xl transition-all duration-300 ${
+      className={`w-80 max-w-[90vw] rounded-2xl border border-red-400/30 bg-red-500/15 p-4 shadow-2xl backdrop-blur-xl transition-all duration-300 ${
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-3'
       }`}
     >

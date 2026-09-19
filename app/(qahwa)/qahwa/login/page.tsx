@@ -24,7 +24,6 @@ export default function QahwaLoginPage() {
 
     setLoading(false);
 if (signInError) {
-  console.error("ERREUR SUPABASE LOGIN :", signInError);
   setError(signInError.message);
   return;
 }
