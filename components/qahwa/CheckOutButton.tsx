@@ -2,14 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export default function CheckOutButton() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [employeeName, setEmployeeName] = useState<string | null>(null);
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -65,24 +63,22 @@ export default function CheckOutButton() {
           return;
         }
 
-        const fileName = `${employee.id}-${Date.now()}.jpg`;
-        const { data: uploadData } = await supabase.storage
-          .from("employee-photos")
-          .upload(fileName, blob, { contentType: "image/jpeg" });
+        const formData = new FormData();
+        formData.append("employee_id", employee.id);
+        formData.append("event_type", "out");
+        formData.append("photo", blob, "photo.jpg");
 
-        let photoUrl: string | null = null;
-        if (uploadData) {
-          const { data: publicUrlData } = supabase.storage
-            .from("employee-photos")
-            .getPublicUrl(uploadData.path);
-          photoUrl = publicUrlData.publicUrl;
-        }
-
-        await supabase.from("employee_clock_events").insert({
-          employee_id: employee.id,
-          event_type: "out",
-          photo_url: photoUrl,
+        const res = await fetch("/api/poste/clock-event", {
+          method: "POST",
+          body: formData,
         });
+
+        if (!res.ok) {
+          const { error } = await res.json();
+          alert("Erreur enregistrement : " + error);
+          setSaving(false);
+          return;
+        }
 
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((t) => t.stop());
