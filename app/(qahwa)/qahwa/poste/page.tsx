@@ -83,20 +83,20 @@ export default function PostePage() {
   async function handleSubmit() {
     if (!code) return;
 
-    const { data: emp } = await supabase
-      .from("employees")
-      .select("id, name, position, code, photo_url")
-      .eq("code", code)
-      .eq("active", true)
-      .maybeSingle();
+    const res = await fetch("/api/poste/verify-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
 
-    if (!emp) {
+    if (!res.ok) {
       setErrorMsg("Code non reconnu.");
       setStep("error");
       setTimeout(resetToCode, 2000);
       return;
     }
 
+    const { employee: emp } = await res.json();
     setEmployee(emp as Employee);
     setStep("camera");
 
@@ -132,9 +132,13 @@ export default function PostePage() {
         }
 
         const fileName = `${employee.id}-${Date.now()}.jpg`;
-        const { data: uploadData } = await supabase.storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
           .from("employee-photos")
           .upload(fileName, blob, { contentType: "image/jpeg" });
+
+        if (uploadError) {
+          alert("Erreur upload photo : " + uploadError.message);
+        }
 
         let photoUrl: string | null = null;
         if (uploadData) {
@@ -144,11 +148,17 @@ export default function PostePage() {
           photoUrl = publicUrlData.publicUrl;
         }
 
-        await supabase.from("employee_clock_events").insert({
-          employee_id: employee.id,
-          event_type: "in",
-          photo_url: photoUrl,
-        });
+        const { error: insertError } = await supabase
+          .from("employee_clock_events")
+          .insert({
+            employee_id: employee.id,
+            event_type: "in",
+            photo_url: photoUrl,
+          });
+
+        if (insertError) {
+          alert("Erreur enregistrement : " + insertError.message);
+        }
 
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((t) => t.stop());
