@@ -77,6 +77,7 @@ type OrderWithItems = Order & { order_items: OrderItem[] };
 export default function CommandesPage() {
   const [orders, setOrders] = useState<OrderWithItems[]>([]);
   const [filter, setFilter] = useState<OrderStatus | "toutes">("toutes");
+   const [typeFilter, setTypeFilter] = useState<OrderType | "tous">("tous");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
@@ -168,8 +169,9 @@ export default function CommandesPage() {
     closeCancelModal();
   }
 
-  const filteredOrders =
-    filter === "toutes" ? orders : orders.filter((o) => o.status === filter);
+  const filteredOrders = orders
+    .filter((o) => filter === "toutes" || o.status === filter)
+    .filter((o) => typeFilter === "tous" || o.order_type === typeFilter);
 
   return (
     <div>
@@ -189,6 +191,29 @@ export default function CommandesPage() {
             }`}
           >
             {f.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        {(
+          [
+            { value: "tous", label: "Tous types" },
+            { value: "sur_place", label: "Sur place" },
+            { value: "emporter", label: "A emporter" },
+            { value: "livraison", label: "Livraison" },
+          ] as { value: OrderType | "tous"; label: string }[]
+        ).map((t) => (
+          <button
+            key={t.value}
+            onClick={() => setTypeFilter(t.value)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-display uppercase shadow-panel ${
+              typeFilter === t.value
+                ? "border-blue-400 bg-blue-400/20 text-blue-300"
+                : "border-qahwa-border bg-qahwa-panel2 text-qahwa-muted"
+            }`}
+          >
+            {t.label}
           </button>
         ))}
       </div>
