@@ -65,7 +65,8 @@ function nextStatus(order: Order): OrderStatus | null {
   if (order.status === "preparation") return "prete";
   if (order.status === "prete") {
     if (order.order_type === "sur_place") return "servi";
-    return order.order_type === "livraison" ? "livraison" : "livree";
+    if (order.order_type === "livraison") return "livraison";
+    return null; // emporter : la commande reste "prete" jusqu'a recuperation, pas de flux livraison
   }
   if (order.status === "livraison") return "livree";
   return null;
