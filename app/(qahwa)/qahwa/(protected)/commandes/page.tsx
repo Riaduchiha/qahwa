@@ -132,6 +132,17 @@ export default function CommandesPage() {
     await supabase.from("orders").update({ status }).eq("id", orderId);
   }
 
+  async function markPaid(orderId: string) {
+    const res = await fetch("/api/poste/table-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_id: orderId, action: "paid" }),
+    });
+    if (!res.ok) {
+      const { error } = await res.json();
+      alert("Erreur : " + error);
+    }
+  }
   function openCancelModal(orderId: string) {
     setCancelOrderId(orderId);
     setCancelReason(CANCEL_REASONS[0]);
@@ -194,7 +205,8 @@ export default function CommandesPage() {
           const isFinal =
             order.status === "livree" ||
             order.status === "refusee" ||
-            order.status === "annulee";
+            order.status === "annulee" ||
+            (order.order_type === "emporter" && order.status === "prete" && order.paid);
 
           return (
             <div
@@ -288,6 +300,23 @@ export default function CommandesPage() {
                         Marquer &quot;{STATUS_LABELS[next]}&quot;
                       </button>
                     )}
+                    {order.order_type === "emporter" &&
+                      order.status === "prete" &&
+                      !order.paid && (
+                        <button
+                          onClick={() => markPaid(order.id)}
+                          className="rounded-lg border border-qahwa-green bg-qahwa-green/20 px-4 py-2 text-xs font-display uppercase text-qahwa-green shadow-panel"
+                        >
+                          Encaisser
+                        </button>
+                      )}
+                    {order.order_type === "emporter" &&
+                      order.status === "prete" &&
+                      order.paid && (
+                        <span className="rounded-lg border border-qahwa-green/40 bg-qahwa-green/10 px-4 py-2 text-xs font-display uppercase text-qahwa-green">
+                          Encaissee - recuperee
+                        </span>
+                      )}
                     {!isFinal && (
                       <button
                         onClick={() => openCancelModal(order.id)}
