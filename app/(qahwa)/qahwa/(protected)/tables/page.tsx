@@ -247,10 +247,16 @@ export default function QahwaTablesPage() {
 
   async function markServed() {
     if (!checkoutOrder) return;
-    await supabase
-      .from("orders")
-      .update({ status: "servi" })
-      .eq("id", checkoutOrder.id);
+    const res = await fetch("/api/poste/table-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_id: checkoutOrder.id, action: "served" }),
+    });
+    if (!res.ok) {
+      const { error } = await res.json();
+      alert("Erreur : " + error);
+      return;
+    }
     setCheckoutOrder({ ...checkoutOrder, status: "servi" });
     load();
   }
@@ -263,15 +269,22 @@ export default function QahwaTablesPage() {
     } catch {
       // ignore si le navigateur bloque le son
     }
-    await supabase
-      .from("orders")
-      .update({ paid: true })
-      .eq("id", checkoutOrder.id);
-    await supabase
-      .from("tables")
-      .update({ reserved: false })
-      .eq("id", checkoutTable.id);
+    const res = await fetch("/api/poste/table-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        order_id: checkoutOrder.id,
+        table_id: checkoutTable.id,
+        action: "paid",
+      }),
+    });
     setClosing(false);
+
+    if (!res.ok) {
+      const { error } = await res.json();
+      alert("Erreur : " + error);
+      return;
+    }
 
     closeCheckout();
     load();
