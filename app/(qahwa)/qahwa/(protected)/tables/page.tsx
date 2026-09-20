@@ -204,10 +204,20 @@ export default function QahwaTablesPage() {
   }, []);
 
   async function toggleReserved(t: CafeTable) {
-    await supabase
-      .from("tables")
-      .update({ reserved: !t.reserved })
-      .eq("id", t.id);
+    const res = await fetch("/api/poste/table-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "reserve",
+        table_id: t.id,
+        reserved: !t.reserved,
+      }),
+    });
+    if (!res.ok) {
+      const { error } = await res.json();
+      alert("Erreur : " + error);
+      return;
+    }
     load();
   }
 

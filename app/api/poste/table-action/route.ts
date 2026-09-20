@@ -2,13 +2,28 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: Request) {
-  const { order_id, table_id, action } = await request.json();
-
-  if (!order_id || !action) {
-    return NextResponse.json({ error: "Donnees manquantes." }, { status: 400 });
-  }
+  const { order_id, table_id, action, reserved } = await request.json();
 
   const supabase = createSupabaseAdminClient();
+
+  if (action === "reserve") {
+    if (!table_id) {
+      return NextResponse.json({ error: "table_id manquant." }, { status: 400 });
+    }
+    const { error } = await supabase
+      .from("tables")
+      .update({ reserved })
+      .eq("id", table_id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (!order_id) {
+    return NextResponse.json({ error: "Donnees manquantes." }, { status: 400 });
+  }
 
   if (action === "served") {
     const { error } = await supabase
