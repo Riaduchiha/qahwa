@@ -1,5 +1,6 @@
 import Image from "next/image";
 import DeliveryOrderAlert from "@/components/qahwa/DeliveryOrderAlert";
+import TakeawayOrderAlert from "@/components/qahwa/TakeawayOrderAlert";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import SidebarNav from "@/components/qahwa/SidebarNav";
@@ -26,6 +27,7 @@ export default async function QahwaAdminLayout({
       <div className="fixed top-4 right-4 z-50 flex flex-col gap-3">
         <WelcomeToast />
         <DeliveryOrderAlert />
+        <TakeawayOrderAlert />
         <LowStockAlert />
         <EventAlert />
       </div>
