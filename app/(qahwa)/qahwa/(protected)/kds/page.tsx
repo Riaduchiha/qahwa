@@ -130,7 +130,13 @@ export default function KdsPage() {
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl text-qahwa-text">
-          Barista Display
+          {station === "bar"
+            ? "Bar Display"
+            : station === "cuisine"
+            ? "Cuisine Display"
+            : station === "barista"
+            ? "Barista Display"
+            : "Barista Display"}
         </h1>
         <div className="flex gap-2">
           {STATIONS.map((s) => (
