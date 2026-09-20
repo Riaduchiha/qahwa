@@ -117,12 +117,12 @@ export default function KdsPage() {
   const filteredOrders = orders
     .map((order) => ({
       ...order,
-      order_items:
+      station_items:
         station === "tous"
           ? order.order_items
           : order.order_items.filter((i) => i.station === station),
     }))
-    .filter((order) => order.order_items.length > 0);
+    .filter((order) => order.station_items.length > 0);
 
   return (
     <div className="min-h-screen bg-qahwa-bg p-4">
@@ -158,7 +158,7 @@ export default function KdsPage() {
           {filteredOrders.map((order) => {
             const allReady = order.order_items.every(
               (i) => i.status === "ready"
-            );
+            ); // calcule sur TOUS les articles de la commande, pas seulement ceux de la station affichee
             return (
               <div
                 key={order.id}
@@ -178,7 +178,7 @@ export default function KdsPage() {
                 </div>
 
                 <div className="mt-4 space-y-4">
-                  {order.order_items.map((item) => (
+                  {order.station_items.map((item) => (
                     <div
                       key={item.id}
                       className="flex items-center justify-between gap-3"
