@@ -72,6 +72,7 @@ export type Order = {
   delivery_fee: number;
   total: number;
   status: OrderStatus;
+  paid: boolean;
   cancel_reason: string | null;
   created_at: string;
 };
@@ -144,8 +145,6 @@ export type EmployeeSchedule = {
   end_time: string;
   created_at: string;
 };
-
-export type ClockEventType = "in" | "out";
 
 export type ClockEventType = "in" | "out";
 
