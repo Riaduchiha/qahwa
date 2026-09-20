@@ -147,10 +147,15 @@ export type EmployeeSchedule = {
 
 export type ClockEventType = "in" | "out";
 
+export type ClockEventType = "in" | "out";
+
+export type ClockOutType = "temporary" | "final" | null;
+
 export type EmployeeClockEvent = {
   id: string;
   employee_id: string;
   event_type: ClockEventType;
+  out_type: ClockOutType;
   photo_url: string | null;
   created_at: string;
 };

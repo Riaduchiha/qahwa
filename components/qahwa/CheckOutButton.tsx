@@ -3,9 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+type OutType = "temporary" | "final";
+
 export default function CheckOutButton() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [outType, setOutType] = useState<OutType>("final");
   const [saving, setSaving] = useState(false);
   const [employeeName, setEmployeeName] = useState<string | null>(null);
 
@@ -21,7 +24,8 @@ export default function CheckOutButton() {
     }
   }, []);
 
-  async function openCamera() {
+  async function openCamera(type: OutType) {
+    setOutType(type);
     setOpen(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -66,6 +70,7 @@ export default function CheckOutButton() {
         const formData = new FormData();
         formData.append("employee_id", employee.id);
         formData.append("event_type", "out");
+        formData.append("out_type", outType);
         formData.append("photo", blob, "photo.jpg");
 
         const res = await fetch("/api/poste/clock-event", {
@@ -85,7 +90,10 @@ export default function CheckOutButton() {
           streamRef.current = null;
         }
 
-        localStorage.removeItem("qahwa-poste-employee");
+        if (outType === "final") {
+          localStorage.removeItem("qahwa-poste-employee");
+        }
+
         setSaving(false);
         router.push("/qahwa/poste");
       },
@@ -96,17 +104,25 @@ export default function CheckOutButton() {
 
   return (
     <>
-      <button
-        onClick={openCamera}
-        className="fixed bottom-4 right-4 z-40 rounded-full border border-qahwa-rouge/40 bg-qahwa-rouge/15 px-4 py-2.5 font-display text-xs uppercase text-qahwa-rouge shadow-panel backdrop-blur-md"
-      >
-        {employeeName ? `${employeeName} — Terminer ma journee` : "Terminer ma journee"}
-      </button>
+      <div className="fixed bottom-4 right-4 z-40 flex gap-2">
+        <button
+          onClick={() => openCamera("temporary")}
+          className="rounded-full border border-qahwa-orange/40 bg-qahwa-orange/15 px-4 py-2.5 font-display text-xs uppercase text-qahwa-orange shadow-panel backdrop-blur-md"
+        >
+          Sortie temporaire
+        </button>
+        <button
+          onClick={() => openCamera("final")}
+          className="rounded-full border border-qahwa-rouge/40 bg-qahwa-rouge/15 px-4 py-2.5 font-display text-xs uppercase text-qahwa-rouge shadow-panel backdrop-blur-md"
+        >
+          {employeeName ? `${employeeName} — Terminer ma journee` : "Terminer ma journee"}
+        </button>
+      </div>
 
       {open && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/90 p-6">
           <p className="font-display text-lg uppercase text-white">
-            Depart — prends une photo
+            {outType === "temporary" ? "Sortie temporaire" : "Sortie finale"} — prends une photo
           </p>
           <video
             ref={videoRef}

@@ -5,6 +5,7 @@ export async function POST(request: Request) {
   const formData = await request.formData();
   const employeeId = formData.get("employee_id") as string;
   const eventType = formData.get("event_type") as string;
+  const outType = formData.get("out_type") as string | null;
   const photo = formData.get("photo") as File | null;
 
   if (!employeeId || !eventType) {
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
   const { error: insertError } = await supabase.from("employee_clock_events").insert({
     employee_id: employeeId,
     event_type: eventType,
+    out_type: eventType === "out" ? outType : null,
     photo_url: photoUrl,
   });
 

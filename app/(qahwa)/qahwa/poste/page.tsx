@@ -13,7 +13,9 @@ interface Employee {
   photo_url: string | null;
 }
 
-type Step = "checking" | "code" | "camera" | "welcome" | "error";
+type Step = "checking" | "code" | "choice" | "camera" | "welcome" | "error";
+type ActionType = "in" | "out";
+type OutType = "temporary" | "final";
 
 function roleRoute(position: string) {
   const p = (position || "").toLowerCase();
@@ -28,7 +30,9 @@ export default function PostePage() {
   const [step, setStep] = useState<Step>("checking");
   const [code, setCode] = useState("");
   const [employee, setEmployee] = useState<Employee | null>(null);
-  const [actionType, setActionType] = useState<"in" | "out">("in");
+  const [actionType, setActionType] = useState<ActionType>("in");
+  const [outType, setOutType] = useState<OutType | null>(null);
+  const [actionLabel, setActionLabel] = useState("Arrivee");
   const [errorMsg, setErrorMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -70,38 +74,26 @@ export default function PostePage() {
     if (code.length < 6) setCode((c) => c + d);
   }
 
-  function resetToCode() {
+  function stopCamera() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+  }
+
+  function resetToCode() {
+    stopCamera();
     setStep("code");
     setCode("");
     setEmployee(null);
+    setActionType("in");
+    setOutType(null);
+    setActionLabel("Arrivee");
     setErrorMsg("");
+    setSaving(false);
   }
 
-  async function handleSubmit() {
-    if (!code) return;
-
-    const res = await fetch("/api/poste/verify-code", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    });
-
-    if (!res.ok) {
-      setErrorMsg("Code non reconnu.");
-      setStep("error");
-      setTimeout(resetToCode, 2000);
-      return;
-    }
-
-    const { employee: emp, nextAction } = await res.json();
-    setEmployee(emp as Employee);
-    setActionType(nextAction as "in" | "out");
-    setStep("camera");
-
+  async function startCamera() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       streamRef.current = stream;
@@ -115,8 +107,59 @@ export default function PostePage() {
     }
   }
 
+  async function handleSubmit() {
+    if (!code || saving) return;
+    setSaving(true);
+
+    const res = await fetch("/api/poste/verify-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+
+    setSaving(false);
+
+    if (!res.ok) {
+      setErrorMsg("Code non reconnu.");
+      setStep("error");
+      setTimeout(resetToCode, 2000);
+      return;
+    }
+
+    const { employee: emp, status } = await res.json();
+    setEmployee(emp as Employee);
+
+    if (status === "choice") {
+      setStep("choice");
+      return;
+    }
+
+    if (status === "return") {
+      setActionType("in");
+      setOutType(null);
+      setActionLabel("Retour");
+      setStep("camera");
+      await startCamera();
+      return;
+    }
+
+    setActionType("in");
+    setOutType(null);
+    setActionLabel("Arrivee");
+    setStep("camera");
+    await startCamera();
+  }
+
+  async function chooseOutType(type: OutType) {
+    setActionType("out");
+    setOutType(type);
+    setActionLabel(type === "temporary" ? "Sortie temporaire" : "Sortie finale");
+    setStep("camera");
+    await startCamera();
+  }
+
   async function handleCapture() {
-    if (!videoRef.current || !canvasRef.current || !employee) return;
+    if (!videoRef.current || !canvasRef.current || !employee || saving) return;
     setSaving(true);
 
     const video = videoRef.current;
@@ -135,7 +178,8 @@ export default function PostePage() {
 
         const formData = new FormData();
         formData.append("employee_id", employee.id);
-        formData.append("event_type", "in");
+        formData.append("event_type", actionType);
+        if (outType) formData.append("out_type", outType);
         formData.append("photo", blob, "photo.jpg");
 
         const res = await fetch("/api/poste/clock-event", {
@@ -150,9 +194,16 @@ export default function PostePage() {
           return;
         }
 
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((t) => t.stop());
-          streamRef.current = null;
+        stopCamera();
+
+        if (actionType === "out" && outType === "final") {
+          localStorage.removeItem("qahwa-poste-employee");
+          setSaving(false);
+          setStep("welcome");
+          setTimeout(() => {
+            router.push("/qahwa/poste");
+          }, 1600);
+          return;
         }
 
         localStorage.setItem(
@@ -164,7 +215,11 @@ export default function PostePage() {
         setStep("welcome");
 
         setTimeout(() => {
-          router.push(roleRoute(employee.position));
+          if (actionType === "out") {
+            router.push("/qahwa/poste");
+          } else {
+            router.push(roleRoute(employee.position));
+          }
         }, 1600);
       },
       "image/jpeg",
@@ -174,9 +229,7 @@ export default function PostePage() {
 
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
+      stopCamera();
     };
   }, []);
 
@@ -276,7 +329,8 @@ export default function PostePage() {
             </button>
             <button
               onClick={handleSubmit}
-              className="qahwa-key h-16 w-16 rounded-2xl border border-qahwa-orange bg-qahwa-orange font-display text-sm uppercase text-qahwa-noir shadow-panel"
+              disabled={saving}
+              className="qahwa-key h-16 w-16 rounded-2xl border border-qahwa-orange bg-qahwa-orange font-display text-sm uppercase text-qahwa-noir shadow-panel disabled:opacity-50"
             >
               OK
             </button>
@@ -284,10 +338,40 @@ export default function PostePage() {
         </>
       )}
 
+      {step === "choice" && employee && (
+        <div className="relative z-10 flex flex-col items-center gap-4 text-center">
+          <h1 className="font-display text-2xl uppercase text-qahwa-text">
+            {employee.name}
+          </h1>
+          <p className="text-sm text-qahwa-muted">Que veux-tu enregistrer ?</p>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => chooseOutType("temporary")}
+              className="rounded-xl border border-qahwa-orange bg-black/30 px-8 py-4 font-display text-lg uppercase text-qahwa-orange shadow-panel backdrop-blur-xl active:scale-95"
+            >
+              Sortie temporaire
+            </button>
+            <button
+              onClick={() => chooseOutType("final")}
+              className="rounded-xl border border-qahwa-rouge bg-black/30 px-8 py-4 font-display text-lg uppercase text-qahwa-rouge shadow-panel backdrop-blur-xl active:scale-95"
+            >
+              Sortie finale
+            </button>
+            <button
+              onClick={resetToCode}
+              className="rounded-xl border border-white/10 bg-white/5 px-8 py-3 font-display text-sm uppercase text-qahwa-muted backdrop-blur-xl"
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
       {step === "camera" && employee && (
         <div className="relative z-10 flex flex-col items-center gap-4">
           <h1 className="font-display text-xl uppercase text-qahwa-text">
-            {employee.name} — {actionType === "in" ? "Arrivee" : "Depart"}
+            {employee.name} — {actionLabel}
           </h1>
           <p className="text-sm text-qahwa-muted">
             Regarde la camera et prends la photo
@@ -334,10 +418,14 @@ export default function PostePage() {
             )}
           </div>
           <p className="font-display text-2xl uppercase text-qahwa-text">
-            Bonjour {employee.name}
+            {actionType === "out" && outType === "final"
+              ? `Au revoir ${employee.name}`
+              : `Bonjour ${employee.name}`}
           </p>
           <p className="text-sm text-qahwa-muted">
-            {employee.position || "Employe"} — direction ton poste...
+            {actionType === "out" && outType === "final"
+              ? "A bientot !"
+              : `${employee.position || "Employe"} — direction ton poste...`}
           </p>
         </div>
       )}
