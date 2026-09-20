@@ -162,7 +162,8 @@ export default function QahwaTablesPage() {
       .from("orders")
       .select("*")
       .eq("order_type", "sur_place")
-      .not("status", "in", "(livree,refusee,annulee)")
+      .eq("paid", false)
+      .not("status", "in", "(refusee,annulee)")
       .returns<Order[]>();
     if (ordersData) {
       const currentReadyIds = new Set(
@@ -264,7 +265,7 @@ export default function QahwaTablesPage() {
     }
     await supabase
       .from("orders")
-      .update({ status: "livree" })
+      .update({ paid: true })
       .eq("id", checkoutOrder.id);
     await supabase
       .from("tables")
