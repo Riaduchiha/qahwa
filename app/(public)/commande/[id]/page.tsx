@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { createSupabasePublicClient } from "@/lib/supabase/public";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { Order, OrderItem, OrderStatus, OrderType } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,7 @@ const ORDER_TYPE_LABELS: Record<OrderType, string> = {
 };
 
 async function getOrder(id: string) {
-  const supabase = createSupabasePublicClient();
+  const supabase = createSupabaseAdminClient();
 
   const { data: order, error: orderError } = await supabase
     .from("orders")
