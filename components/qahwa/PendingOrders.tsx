@@ -37,7 +37,7 @@ export default function PendingOrders() {
 
   async function validate(id: string) {
     setOrders((prev) => prev.filter((o) => o.id !== id));
-    await supabase.from("orders").update({ status: "preparation" }).eq("id", id);
+    await supabase.from("orders").update({ status: "preparation" } as never).eq("id", id);
   }
 
   if (orders.length === 0) {

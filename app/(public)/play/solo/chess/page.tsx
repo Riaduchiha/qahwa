@@ -143,7 +143,7 @@ export default function PlaySoloChessPage() {
     game.board().forEach((row) =>
       row.forEach((sq) => {
         if (sq) {
-          const val = PIECE_VALUES[sq.type];
+          const val = PIECE_VALUES[sq.type] ?? 0;
           score += sq.color === "w" ? val : -val;
         }
       })
@@ -198,6 +198,7 @@ export default function PlaySoloChessPage() {
       }
     }
     const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!chosen) return;
     applyMove(chosen);
   }
 
@@ -249,7 +250,7 @@ export default function PlaySoloChessPage() {
     const piece = game.get(square as never);
     if (piece && piece.color === game.turn()) {
       setSelected(square);
-      const moves = game.moves({ square, verbose: true } as never) as {
+      const moves = game.moves({ square, verbose: true } as never) as unknown as {
         to: string;
       }[];
       setLegalTargets(moves.map((m) => m.to));
@@ -376,7 +377,8 @@ export default function PlaySoloChessPage() {
         <div className="mx-auto mt-3 grid aspect-square w-full max-w-[352px] grid-cols-8 grid-rows-8 overflow-hidden rounded-lg border-4 border-black shadow-2xl">
           {board.map((row, rIdx) =>
             row.map((sq, cIdx) => {
-              const name = FILES[cIdx] + (8 - rIdx);
+              const file = FILES[cIdx] ?? "a";
+              const name = file + (8 - rIdx);
               const isLight = (rIdx + cIdx) % 2 === 0;
               const isSelected = selected === name;
               const isTarget = legalTargets.includes(name);

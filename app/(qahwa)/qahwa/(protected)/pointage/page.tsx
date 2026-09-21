@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
+
 interface Employee {
   id: string;
   name: string;
@@ -94,12 +95,12 @@ export default function PointagePage() {
     setSaving(true);
     setErrorMsg("");
 
-    const { data: employee, error: employeeError } = await supabase
+    const { data: employee, error: employeeError } = (await supabase
       .from("employees")
       .select("id, name, code")
       .eq("code", code)
       .eq("active", true)
-      .maybeSingle();
+      .maybeSingle()) as { data: Employee | null; error: unknown };
 
     if (employeeError || !employee) {
       setSaving(false);
@@ -120,13 +121,15 @@ export default function PointagePage() {
     const endOfDay = new Date(today);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const { data: todayEvents } = await supabase
+    const { data: todayEvents } = (await supabase
       .from("employee_clock_events")
       .select("event_type, out_type, created_at")
       .eq("employee_id", employee.id)
       .gte("created_at", startOfDay.toISOString())
       .lte("created_at", endOfDay.toISOString())
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })) as {
+      data: { event_type: string; out_type: string | null; created_at: string }[] | null;
+    };
 
     const lastEvent = todayEvents?.[0];
 
@@ -269,7 +272,7 @@ export default function PointagePage() {
               out_type:
                 actionType === "out" ? outType : null,
               photo_url: photoUrl,
-            });
+             } as never);
 
           if (insertError) {
             throw new Error(insertError.message);

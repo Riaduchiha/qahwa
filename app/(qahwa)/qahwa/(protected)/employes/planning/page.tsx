@@ -40,8 +40,9 @@ export default function PlanningPage() {
       .eq("active", true)
       .order("name");
     if (empData) {
-      setEmployees(empData as Employee[]);
-      setSelectedEmployeeId((prev) => prev || empData[0]?.id || "");
+      const typedEmpData = empData as Employee[];
+      setEmployees(typedEmpData);
+      setSelectedEmployeeId((prev) => prev || typedEmpData[0]?.id || "");
     }
 
     const { data: schedData } = await supabase

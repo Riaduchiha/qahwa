@@ -130,7 +130,7 @@ export default function CommandesPage() {
   }, []);
 
   async function updateStatus(orderId: string, status: OrderStatus) {
-    await supabase.from("orders").update({ status }).eq("id", orderId);
+    await supabase.from("orders").update({ status } as never).eq("id", orderId);
   }
 
   async function markPaid(orderId: string) {
@@ -163,7 +163,7 @@ export default function CommandesPage() {
 
     await supabase
       .from("orders")
-      .update({ status: "annulee", cancel_reason: reason })
+      .update({ status: "annulee", cancel_reason: reason } as never)
       .eq("id", cancelOrderId);
 
     closeCancelModal();

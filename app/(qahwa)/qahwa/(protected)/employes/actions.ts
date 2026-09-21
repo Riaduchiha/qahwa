@@ -13,7 +13,7 @@ type EmployeeInput = {
 
 export async function createEmployee(data: EmployeeInput) {
   const supabase = createSupabaseServerClient();
-  const { error } = await supabase.from("employees").insert(data);
+  const { error } = await supabase.from("employees").insert(data as never);
   if (error) return { success: false, error: error.message };
   revalidatePath("/qahwa/employes");
   return { success: true };
@@ -23,7 +23,7 @@ export async function updateEmployee(id: string, data: EmployeeInput) {
   const supabase = createSupabaseServerClient();
   const { error } = await supabase
     .from("employees")
-    .update(data)
+    .update(data as never)
     .eq("id", id);
   if (error) return { success: false, error: error.message };
   revalidatePath("/qahwa/employes");
@@ -49,7 +49,7 @@ export async function addSchedule(
     day_of_week: dayOfWeek,
     start_time: startTime,
     end_time: endTime,
-  });
+  } as never);
   if (error) return { success: false, error: error.message };
   revalidatePath("/qahwa/employes");
   return { success: true };
@@ -75,7 +75,7 @@ export async function deleteSchedule(id: string) {
     amount,
     note,
     advance_date: advanceDate,
-  });
+  } as never);
   if (error) return { success: false, error: error.message };
   revalidatePath("/qahwa/employes");
   return { success: true };

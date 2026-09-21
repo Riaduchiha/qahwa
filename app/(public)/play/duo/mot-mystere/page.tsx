@@ -34,7 +34,7 @@ export default function DuoLobbyPage() {
 
     const { data: game, error: gameError } = await supabase
       .from("duo_games")
-      .insert({ code })
+      .insert({ code } as never)
       .select()
       .single();
 
@@ -44,15 +44,17 @@ export default function DuoLobbyPage() {
       return;
     }
 
+    const gameId = (game as { id: string }).id;
+
     await supabase.from("duo_players").insert({
-      game_id: game.id,
+      game_id: gameId,
       player_number: 1,
       nickname: nickname.trim(),
-    });
+    } as never);
 
     sessionStorage.setItem(
       `qahwa-duo-${code}`,
-      JSON.stringify({ gameId: game.id, playerNumber: 1 })
+      JSON.stringify({ gameId, playerNumber: 1 })
     );
 
     router.push(`/play/duo/mot-mystere/${code}`);
@@ -80,10 +82,12 @@ export default function DuoLobbyPage() {
       return;
     }
 
+    const gameId = (game as { id: string }).id;
+
     const { data: existingPlayer2 } = await supabase
       .from("duo_players")
       .select("id")
-      .eq("game_id", game.id)
+      .eq("game_id", gameId)
       .eq("player_number", 2)
       .maybeSingle();
 
@@ -94,19 +98,19 @@ export default function DuoLobbyPage() {
     }
 
     await supabase.from("duo_players").insert({
-      game_id: game.id,
+      game_id: gameId,
       player_number: 2,
       nickname: nickname.trim(),
-    });
+    } as never);
 
     await supabase
       .from("duo_games")
-      .update({ status: "ready" })
-      .eq("id", game.id);
+      .update({ status: "ready" } as never)
+      .eq("id", gameId);
 
     sessionStorage.setItem(
       `qahwa-duo-${code}`,
-      JSON.stringify({ gameId: game.id, playerNumber: 2 })
+      JSON.stringify({ gameId, playerNumber: 2 })
     );
 
     router.push(`/play/duo/mot-mystere/${code}`);

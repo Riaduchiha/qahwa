@@ -27,6 +27,8 @@ export default function CategoryShowcase({
   const prev = products[(index - 1 + products.length) % products.length];
   const next = products[(index + 1) % products.length];
 
+  if (!current || !prev || !next) return null;
+
   function goTo(target: number) {
     setIndex(target);
     setQty(1);
@@ -34,7 +36,7 @@ export default function CategoryShowcase({
 
   function handleAdd() {
     addItem(
-      { productId: current.id, name: current.name, price: current.price },
+      { productId: current!.id, name: current!.name, price: current!.price },
       qty
     );
     setAdded(true);

@@ -111,9 +111,9 @@ export default function Play2048Page() {
     function randomEmptyCell(): [number, number] | null {
       const cells: [number, number][] = [];
       for (let r = 0; r < SIZE; r++)
-        for (let c = 0; c < SIZE; c++) if (!grid[r][c]) cells.push([r, c]);
+        for (let c = 0; c < SIZE; c++) if (!grid[r]![c]) cells.push([r, c]);
       if (cells.length === 0) return null;
-      return cells[Math.floor(Math.random() * cells.length)];
+      return cells[Math.floor(Math.random() * cells.length)] ?? null;
     }
 
     function applyTileStyle(el: HTMLDivElement, tile: Tile) {
@@ -153,7 +153,7 @@ export default function Play2048Page() {
       const [r, c] = cell;
       const value = Math.random() < 0.9 ? 2 : 4;
       const tile: Tile = { id: tileIdCounter++, value, row: r, col: c };
-      grid[r][c] = tile;
+      grid[r]![c] = tile;
       createTileEl(tile);
     }
 
@@ -198,10 +198,10 @@ export default function Play2048Page() {
     function extractLine(direction: Direction, index: number) {
       const cells: (Tile | null)[] = [];
       for (let i = 0; i < SIZE; i++) {
-        if (direction === "left") cells.push(grid[index][i]);
-        else if (direction === "right") cells.push(grid[index][SIZE - 1 - i]);
-        else if (direction === "up") cells.push(grid[i][index]);
-        else cells.push(grid[SIZE - 1 - i][index]);
+        if (direction === "left") cells.push(grid[index]![i] ?? null);
+        else if (direction === "right") cells.push(grid[index]![SIZE - 1 - i] ?? null);
+        else if (direction === "up") cells.push(grid[i]![index] ?? null);
+        else cells.push(grid[SIZE - 1 - i]![index] ?? null);
       }
       return cells;
     }
@@ -213,15 +213,16 @@ export default function Play2048Page() {
         else if (direction === "right") { r = index; c = SIZE - 1 - i; }
         else if (direction === "up") { r = i; c = index; }
         else { r = SIZE - 1 - i; c = index; }
-        grid[r][c] = line[i];
-        if (line[i]) { line[i]!.row = r; line[i]!.col = c; }
+        const tile = line[i] ?? null;
+        grid[r]![c] = tile;
+        if (tile) { tile.row = r; tile.col = c; }
       }
     }
 
     function findMergeTargetPos(removedTile: Tile) {
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
-          const t = grid[r][c];
+          const t = grid[r]![c];
           if (t && t.value === removedTile.value * 2) return posFor(r, c);
         }
       }
@@ -230,11 +231,13 @@ export default function Play2048Page() {
 
     function canMoveCheck() {
       for (let r = 0; r < SIZE; r++) {
+        const row = grid[r]!;
         for (let c = 0; c < SIZE; c++) {
-          if (!grid[r][c]) return true;
-          const v = grid[r][c]!.value;
-          if (c < SIZE - 1 && grid[r][c + 1] && grid[r][c + 1]!.value === v) return true;
-          if (r < SIZE - 1 && grid[r + 1][c] && grid[r + 1][c]!.value === v) return true;
+          if (!row[c]) return true;
+          const v = row[c]!.value;
+          if (c < SIZE - 1 && row[c + 1] && row[c + 1]!.value === v) return true;
+          const nextRow = grid[r + 1];
+          if (r < SIZE - 1 && nextRow && nextRow[c] && nextRow[c]!.value === v) return true;
         }
       }
       return false;
@@ -243,8 +246,9 @@ export default function Play2048Page() {
     function checkGameState() {
       if (!wonAcknowledged) {
         for (let r = 0; r < SIZE; r++) {
+          const row = grid[r]!;
           for (let c = 0; c < SIZE; c++) {
-            if (grid[r][c] && grid[r][c]!.value === 2048) {
+            if (row[c] && row[c]!.value === 2048) {
               overlayText.textContent = "2048 atteint !";
               overlayContinue.style.display = "inline-block";
               overlay.classList.add("show");
@@ -275,15 +279,17 @@ export default function Play2048Page() {
         const result: (Tile | null)[] = [];
         let i = 0;
         while (i < filtered.length) {
-          if (i + 1 < filtered.length && filtered[i].value === filtered[i + 1].value) {
-            filtered[i].value *= 2;
-            result.push(filtered[i]);
-            removedTiles.push(filtered[i + 1]);
-            mergedTileIds.push(filtered[i].id);
-            gained += filtered[i].value;
+          const cur = filtered[i]!;
+          const nxt = filtered[i + 1];
+          if (nxt && cur.value === nxt.value) {
+            cur.value *= 2;
+            result.push(cur);
+            removedTiles.push(nxt);
+            mergedTileIds.push(cur.id);
+            gained += cur.value;
             i += 2;
           } else {
-            result.push(filtered[i]);
+            result.push(cur);
             i += 1;
           }
         }
@@ -301,7 +307,7 @@ export default function Play2048Page() {
 
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
-          const t = grid[r][c];
+          const t = grid[r]![c];
           if (t) {
             const el = tileEls.get(t.id);
             if (el) {
@@ -349,23 +355,24 @@ export default function Play2048Page() {
         ArrowUp: "up",
         ArrowDown: "down",
       };
-      if (map[e.key]) {
+      const dir = map[e.key];
+      if (dir) {
         e.preventDefault();
         ensureAudio();
-        move(map[e.key]);
+        move(dir);
       }
     }
 
     let touchStartX = 0;
     let touchStartY = 0;
     function onTouchStart(e: TouchEvent) {
-      touchStartX = e.touches[0].clientX;
-      touchStartY = e.touches[0].clientY;
+      touchStartX = e.touches[0]!.clientX;
+      touchStartY = e.touches[0]!.clientY;
     }
     function onTouchEnd(e: TouchEvent) {
       ensureAudio();
-      const dx = e.changedTouches[0].clientX - touchStartX;
-      const dy = e.changedTouches[0].clientY - touchStartY;
+      const dx = e.changedTouches[0]!.clientX - touchStartX;
+      const dy = e.changedTouches[0]!.clientY - touchStartY;
       if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
       if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? "right" : "left");
       else move(dy > 0 ? "down" : "up");
@@ -375,7 +382,7 @@ export default function Play2048Page() {
       computeCellSize();
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
-          const t = grid[r][c];
+          const t = grid[r]![c];
           if (t) {
             const el = tileEls.get(t.id);
             if (el) {

@@ -57,7 +57,7 @@ export default function PostePage() {
           .eq("id", saved.id)
           .maybeSingle();
         if (emp) {
-          router.replace(roleRoute(emp.position));
+          router.replace(roleRoute((emp as { position: string }).position));
         } else {
           localStorage.removeItem("qahwa-poste-employee");
           setStep("code");

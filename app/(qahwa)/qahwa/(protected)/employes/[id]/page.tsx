@@ -66,7 +66,9 @@ function dayOfWeekFromDate(dateStr: string) {
 }
 
 function timeToMinutes(t: string) {
-  const [h, m] = t.split(":").map(Number);
+  const parts = t.split(":").map(Number);
+  const h = parts[0] ?? 0;
+  const m = parts[1] ?? 0;
   return h * 60 + m;
 }
 
@@ -305,7 +307,7 @@ export default function EmployeeDetailPage() {
                     {formatDay(day)}
                   </p>
                   <div className="space-y-2">
-                    {eventsByDay[day].map((ev) => {
+                    {(eventsByDay[day] ?? []).map((ev) => {
                       const status = eventStatus(ev);
                       let dotClass = "bg-qahwa-muted";
                       let pulseClass = "";

@@ -167,7 +167,7 @@ export default function DuoGamePage() {
         word,
         order_index: i,
         status: "pending",
-      }))
+      })) as never
     );
 
     await supabase
@@ -175,7 +175,7 @@ export default function DuoGamePage() {
       .update({
         status: "playing",
         round_end_at: new Date(Date.now() + ROUND_SECONDS * 1000).toISOString(),
-      })
+      } as never)
       .eq("id", game.id);
 
     startingRef.current = false;
@@ -187,7 +187,7 @@ export default function DuoGamePage() {
     if (nextRound > TOTAL_ROUNDS) {
       await supabase
         .from("duo_games")
-        .update({ status: "finished" })
+        .update({ status: "finished" } as never)
         .eq("id", game.id)
         .eq("status", "playing");
     } else {
@@ -198,18 +198,18 @@ export default function DuoGamePage() {
           current_round: nextRound,
           describer_player: game.describer_player === 1 ? 2 : 1,
           round_end_at: null,
-        })
+        } as never)
         .eq("id", game.id)
         .eq("status", "playing");
     }
   }
 
   async function markFound(wordId: string) {
-    await supabase.from("duo_words").update({ status: "found" }).eq("id", wordId);
+    await supabase.from("duo_words").update({ status: "found" } as never).eq("id", wordId);
   }
 
   async function skipWord(wordId: string) {
-    await supabase.from("duo_words").update({ status: "skipped" }).eq("id", wordId);
+    await supabase.from("duo_words").update({ status: "skipped" } as never).eq("id", wordId);
   }
 
   if (!game || !session) {
