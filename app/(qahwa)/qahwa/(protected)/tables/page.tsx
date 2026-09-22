@@ -151,20 +151,14 @@ export default function QahwaTablesPage() {
   }, []);
 
   async function load() {
-    const { data: tablesData } = await supabase
-      .from("tables")
-      .select("*")
-      .order("number")
-      .returns<CafeTable[]>();
-    if (tablesData) setTables(tablesData);
+    const res = await fetch("/api/poste/tables-data");
+    if (!res.ok) return;
+    const { tables: tablesData, orders: ordersData } = (await res.json()) as {
+      tables: CafeTable[];
+      orders: Order[];
+    };
+    if (tablesData) setTables(tablesData as CafeTable[]);
 
-    const { data: ordersData } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("order_type", "sur_place")
-      .eq("paid", false)
-      .not("status", "in", "(refusee,annulee)")
-      .returns<Order[]>();
     if (ordersData) {
       const currentReadyIds = new Set(
         ordersData.filter((o) => o.status === "prete").map((o) => o.id)
