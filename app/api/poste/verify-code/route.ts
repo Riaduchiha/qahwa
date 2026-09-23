@@ -1,7 +1,27 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
+const MAX_ATTEMPTS = 5;
+const BLOCK_DURATION_MS = 60 * 1000; // 1 minute
+
+const attempts = new Map<string, { count: number; blockedUntil: number }>();
+
 export async function POST(request: Request) {
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "unknown";
+
+  const now = Date.now();
+  const entry = attempts.get(ip);
+
+  if (entry && entry.blockedUntil > now) {
+    const secondsLeft = Math.ceil((entry.blockedUntil - now) / 1000);
+    return NextResponse.json(
+      { error: `Trop de tentatives. Reessaie dans ${secondsLeft}s.` },
+      { status: 429 }
+    );
+  }
+
   const { code } = await request.json();
 
   if (!code || typeof code !== "string") {
@@ -17,8 +37,20 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (error || !emp) {
+    const current = attempts.get(ip) ?? { count: 0, blockedUntil: 0 };
+    const newCount = current.count + 1;
+
+    if (newCount >= MAX_ATTEMPTS) {
+      attempts.set(ip, { count: 0, blockedUntil: now + BLOCK_DURATION_MS });
+    } else {
+      attempts.set(ip, { count: newCount, blockedUntil: 0 });
+    }
+
     return NextResponse.json({ error: "Code non reconnu." }, { status: 404 });
   }
+
+  // Code correct : on remet le compteur a zero pour cette IP
+  attempts.delete(ip);
 
   const today = new Date();
   const startOfDay = new Date(today);
@@ -47,15 +79,12 @@ export async function POST(request: Request) {
 
   const response = NextResponse.json({ employee: emp, status });
 
-  // Cookie de preuve : l'appareil a valide un code employe reel.
-  // Utilise ensuite par les routes d'action Poste (table-action, mark-ready)
-  // pour autoriser sans exiger une session Supabase classique.
   response.cookies.set("poste_session", "ok", {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 12, // 12 heures
+    maxAge: 60 * 60 * 12,
   });
 
   return response;

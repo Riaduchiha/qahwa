@@ -4,8 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database, OrderType } from "@/types/database";
 import type { CartItem } from "@/lib/store/cart";
 
-// Client avec la clé anon (RLS autorise l'insertion publique de commandes,
-// voir supabase/migrations/0002_orders.sql).
 function getSupabase() {
   return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://placeholder.supabase.co",
@@ -14,10 +12,6 @@ function getSupabase() {
 }
 
 function generateOrderNumber() {
-  // Ex: QH-7K2M9 — court, lisible, suffisant pour un premier numéro
-  // de commande (pas de garantie cryptographique d'unicité, mais le
-  // champ order_number est UNIQUE en base : une collision fait échouer
-  // l'insertion, extrêmement rare sur ce format).
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   for (let i = 0; i < 5; i++) {
@@ -50,11 +44,42 @@ export async function createOrder(
 
   const supabase = getSupabase();
 
-  const subtotal = input.items.reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0
-  );
-  const deliveryFee = input.orderType === "livraison" ? 200 : 0; // provisoire, configurable plus tard depuis QAHWA
+  const productIds = input.items
+    .map((item) => item.productId)
+    .filter(Boolean);
+
+  // Prix officiels : on ne fait JAMAIS confiance au prix envoye par le
+  // navigateur. On recupere le vrai prix et la station depuis la base.
+  const { data: products, error: productsError } = await supabase
+    .from("products")
+    .select("id, name, price, station, is_available")
+    .in("id", productIds);
+
+  if (productsError || !products) {
+    return { error: "Impossible de verifier les produits." };
+  }
+
+  const productById = new Map(products.map((p) => [p.id, p]));
+
+  for (const item of input.items) {
+    const product = productById.get(item.productId);
+    if (!product) {
+      return { error: `Produit introuvable : ${item.name}` };
+    }
+    if (!product.is_available) {
+      return { error: `Produit indisponible : ${product.name}` };
+    }
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      return { error: `Quantite invalide pour : ${product.name}` };
+    }
+  }
+
+  const subtotal = input.items.reduce((sum, item) => {
+    const product = productById.get(item.productId)!;
+    return sum + product.price * item.quantity;
+  }, 0);
+
+  const deliveryFee = input.orderType === "livraison" ? 200 : 0;
   const total = subtotal + deliveryFee;
 
   const orderNumber = generateOrderNumber();
@@ -83,29 +108,20 @@ export async function createOrder(
     return { error: orderError?.message ?? "Erreur inconnue." };
   }
 
-  const productIds = input.items
-    .map((item) => item.productId)
-    .filter(Boolean);
-
-  const { data: products } = await supabase
-    .from("products")
-    .select("id, station")
-    .in("id", productIds);
-
-  const stationByProduct = new Map(
-    (products ?? []).map((p) => [p.id, p.station])
-  );
   const { error: itemsError } = await supabase.from("order_items").insert(
-    input.items.map((item) => ({
-      order_id: order.id,
-      product_id: item.productId,
-      product_name: item.name,
-      unit_price: item.price,
-      quantity: item.quantity,
-      line_total: item.price * item.quantity,
-      station: stationByProduct.get(item.productId) ?? "barista",
-      status: "new",
-    }))
+    input.items.map((item) => {
+      const product = productById.get(item.productId)!;
+      return {
+        order_id: order.id,
+        product_id: item.productId,
+        product_name: product.name,
+        unit_price: product.price,
+        quantity: item.quantity,
+        line_total: product.price * item.quantity,
+        station: product.station ?? "barista",
+        status: "new",
+      };
+    })
   );
 
   if (itemsError) {
