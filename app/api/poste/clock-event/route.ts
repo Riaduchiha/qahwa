@@ -13,6 +13,18 @@ export async function POST(request: Request) {
   }
 
   const supabase = createSupabaseAdminClient();
+
+  const { data: emp, error: empError } = await supabase
+    .from("employees")
+    .select("id")
+    .eq("id", employeeId)
+    .eq("active", true)
+    .maybeSingle();
+
+  if (empError || !emp) {
+    return NextResponse.json({ error: "Employe introuvable." }, { status: 404 });
+  }
+
   let photoUrl: string | null = null;
 
   if (photo) {

@@ -198,7 +198,7 @@ export default function QahwaTablesPage() {
   }, []);
 
   async function toggleReserved(t: CafeTable) {
-    const res = await fetch("/api/poste/table-action", {
+    const res = await fetch("/api/poste/tables-action", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -251,7 +251,7 @@ export default function QahwaTablesPage() {
 
   async function markServed() {
     if (!checkoutOrder) return;
-    const res = await fetch("/api/poste/table-action", {
+    const res = await fetch("/api/poste/tables-action", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ order_id: checkoutOrder.id, action: "served" }),
@@ -273,7 +273,7 @@ export default function QahwaTablesPage() {
     } catch {
       // ignore si le navigateur bloque le son
     }
-    const res = await fetch("/api/poste/table-action", {
+    const res = await fetch("/api/poste/tables-action", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

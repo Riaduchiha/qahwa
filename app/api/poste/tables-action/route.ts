@@ -1,10 +1,28 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export async function POST(request: Request) {
-  const { order_id, table_id, action, reserved } = await request.json();
+  // 1. Autorise si session Supabase classique (dashboard)
+  const supabaseAuth = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabaseAuth.auth.getUser();
+
+  // 2. Sinon, autorise si cookie pose par verify-code (Poste)
+  const posteSession = cookies().get("poste_session")?.value === "ok";
+
+  if (!user && !posteSession) {
+    return NextResponse.json(
+      { error: "Non autorise." },
+      { status: 401 }
+    );
+  }
 
   const supabase = createSupabaseAdminClient();
+
+  const { order_id, table_id, action, reserved } = await request.json();
 
   if (action === "reserve") {
     if (!table_id) {

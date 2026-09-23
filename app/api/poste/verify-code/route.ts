@@ -45,5 +45,18 @@ export async function POST(request: Request) {
     status = "return";
   }
 
-  return NextResponse.json({ employee: emp, status });
+  const response = NextResponse.json({ employee: emp, status });
+
+  // Cookie de preuve : l'appareil a valide un code employe reel.
+  // Utilise ensuite par les routes d'action Poste (table-action, mark-ready)
+  // pour autoriser sans exiger une session Supabase classique.
+  response.cookies.set("poste_session", "ok", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 12, // 12 heures
+  });
+
+  return response;
 }

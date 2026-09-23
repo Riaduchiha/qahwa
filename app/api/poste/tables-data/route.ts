@@ -2,27 +2,46 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export async function GET() {
-  const supabase = createSupabaseAdminClient();
+  try {
+    const supabase = createSupabaseAdminClient();
 
-  const { data: tables, error: tablesError } = await supabase
-    .from("tables")
-    .select("*")
-    .order("number");
+    const { data: tables, error: tablesError } = await supabase
+      .from("tables")
+      .select("*")
+      .order("number");
 
-  if (tablesError) {
-    return NextResponse.json({ error: tablesError.message }, { status: 500 });
+    if (tablesError) {
+      console.error("Erreur récupération tables:", tablesError);
+      return NextResponse.json(
+        { error: "Impossible de récupérer les tables." },
+        { status: 500 }
+      );
+    }
+
+    const { data: orders, error: ordersError } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("order_type", "sur_place")
+      .eq("paid", false)
+      .not("status", "in", "(refusee,annulee)");
+
+    if (ordersError) {
+      console.error("Erreur récupération commandes:", ordersError);
+      return NextResponse.json(
+        { error: "Impossible de récupérer les commandes." },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      tables: tables ?? [],
+      orders: orders ?? [],
+    });
+  } catch (error) {
+    console.error("Erreur API tables-data:", error);
+    return NextResponse.json(
+      { error: "Erreur interne du serveur." },
+      { status: 500 }
+    );
   }
-
-  const { data: orders, error: ordersError } = await supabase
-    .from("orders")
-    .select("*")
-    .eq("order_type", "sur_place")
-    .eq("paid", false)
-    .not("status", "in", "(refusee,annulee)");
-
-  if (ordersError) {
-    return NextResponse.json({ error: ordersError.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ tables, orders });
 }
