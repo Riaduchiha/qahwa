@@ -14,6 +14,11 @@ type OrderWithItems = Order & {
   order_items: OrderItem[];
 };
 
+type KdsResponse = {
+  orders: Order[];
+  items: OrderItem[];
+};
+
 function elapsedLabel(createdAt: string) {
   const minutes = Math.floor(
     (Date.now() - new Date(createdAt).getTime()) / 60000
@@ -44,14 +49,23 @@ export default function KdsPage() {
         return;
       }
 
-      const data: OrderWithItems[] = await response.json();
+      const data: KdsResponse = await response.json();
+
+      const ordersWithItems: OrderWithItems[] = data.orders.map(
+        (order) => ({
+          ...order,
+          order_items: data.items.filter(
+            (item) => item.order_id === order.id
+          ),
+        })
+      );
 
       const currentOrderIds = new Set(
-        data.map((order) => order.id)
+        ordersWithItems.map((order) => order.id)
       );
 
       if (initializedRef.current) {
-        const hasNewOrder = data.some(
+        const hasNewOrder = ordersWithItems.some(
           (order) => !previousOrderIdsRef.current.has(order.id)
         );
 
@@ -60,7 +74,10 @@ export default function KdsPage() {
             audioRef.current.currentTime = 0;
             await audioRef.current.play();
           } catch (error) {
-            console.warn("Son KDS bloqué par le navigateur:", error);
+            console.warn(
+              "Son KDS bloqué par le navigateur:",
+              error
+            );
           }
         }
       } else {
@@ -68,7 +85,7 @@ export default function KdsPage() {
       }
 
       previousOrderIdsRef.current = currentOrderIds;
-      setOrders(data);
+      setOrders(ordersWithItems);
     } catch (error) {
       console.error("KDS:", error);
     }

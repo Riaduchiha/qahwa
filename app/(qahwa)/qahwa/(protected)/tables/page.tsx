@@ -174,28 +174,33 @@ export default function QahwaTablesPage() {
     }
   }
 
-  useEffect(() => {
+ useEffect(() => {
+  load();
+
+  const refreshInterval = setInterval(() => {
     load();
+  }, 2000);
 
-    const channel = supabase
-      .channel("tables-live")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "orders" },
-        () => load()
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "tables" },
-        () => load()
-      )
-      .subscribe();
+  const channel = supabase
+    .channel("tables-live")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "orders" },
+      () => load()
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "tables" },
+      () => load()
+    )
+    .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  return () => {
+    clearInterval(refreshInterval);
+    supabase.removeChannel(channel);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   async function toggleReserved(t: CafeTable) {
     const res = await fetch("/api/poste/tables-action", {

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-
 interface Employee {
   id: string;
   name: string;
@@ -13,6 +12,12 @@ interface Employee {
 type Step = "code" | "choice" | "camera" | "success" | "error";
 type ActionType = "in" | "out";
 type OutType = "temporary" | "final";
+
+interface ClockEvent {
+  event_type: ActionType;
+  out_type: OutType | null;
+  created_at: string;
+}
 
 export default function PointagePage() {
   const [step, setStep] = useState<Step>("code");
@@ -100,7 +105,10 @@ export default function PointagePage() {
       .select("id, name, code")
       .eq("code", code)
       .eq("active", true)
-      .maybeSingle()) as { data: Employee | null; error: unknown };
+      .maybeSingle()) as {
+      data: Employee | null;
+      error: unknown;
+    };
 
     if (employeeError || !employee) {
       setSaving(false);
@@ -115,6 +123,7 @@ export default function PointagePage() {
     }
 
     const today = new Date();
+
     const startOfDay = new Date(today);
     startOfDay.setHours(0, 0, 0, 0);
 
@@ -128,7 +137,7 @@ export default function PointagePage() {
       .gte("created_at", startOfDay.toISOString())
       .lte("created_at", endOfDay.toISOString())
       .order("created_at", { ascending: false })) as {
-      data: { event_type: string; out_type: string | null; created_at: string }[] | null;
+      data: ClockEvent[] | null;
     };
 
     const lastEvent = todayEvents?.[0];
@@ -141,7 +150,7 @@ export default function PointagePage() {
      */
     if (!lastEvent) {
       await prepareCamera(
-        employee as Employee,
+        employee,
         "in",
         null,
         "Arrivee"
@@ -150,33 +159,65 @@ export default function PointagePage() {
     }
 
     /*
-     * Dernier événement = ARRIVEE ou RETOUR
-     * → L'employé est actuellement présent.
-     *
-     * On lui demande donc de choisir :
-     * - Sortie temporaire
-     * - Sortie finale
+     * Dernier événement = ARRIVEE
+     * → L'employé est présent.
+     * → On propose une sortie temporaire ou finale.
      */
     if (lastEvent.event_type === "in") {
-      setMatchedEmployee(employee as Employee);
+      setMatchedEmployee(employee);
       setStep("choice");
       return;
     }
 
     /*
-     * Dernier événement = SORTIE
-     * → L'employé revient.
-     *
-     * On enregistre automatiquement un "in".
+     * Dernier événement = SORTIE TEMPORAIRE
+     * → L'employé peut revenir.
      */
-    if (lastEvent.event_type === "out") {
+    if (
+      lastEvent.event_type === "out" &&
+      lastEvent.out_type === "temporary"
+    ) {
       await prepareCamera(
-        employee as Employee,
+        employee,
         "in",
         null,
         "Retour"
       );
       return;
+    }
+
+    /*
+     * Dernier événement = SORTIE FINALE
+     * → La journée est terminée.
+     * → Aucun retour automatique.
+     */
+    if (
+      lastEvent.event_type === "out" &&
+      lastEvent.out_type === "final"
+    ) {
+      setErrorMsg(
+        "Sortie finale déjà enregistrée pour aujourd'hui."
+      );
+      setStep("error");
+
+      setTimeout(() => {
+        resetToCode();
+      }, 3000);
+
+      return;
+    }
+
+    /*
+     * Sécurité si une ancienne donnée
+     * contient une sortie sans type.
+     */
+    if (lastEvent.event_type === "out") {
+      await prepareCamera(
+        employee,
+        "in",
+        null,
+        "Retour"
+      );
     }
   }
 
@@ -272,7 +313,7 @@ export default function PointagePage() {
               out_type:
                 actionType === "out" ? outType : null,
               photo_url: photoUrl,
-             } as never);
+            } as never);
 
           if (insertError) {
             throw new Error(insertError.message);
@@ -469,9 +510,7 @@ export default function PointagePage() {
               disabled={saving}
               className="rounded-lg border border-qahwa-orange bg-qahwa-orange px-6 py-2 text-sm font-display uppercase text-qahwa-noir disabled:opacity-50"
             >
-              {saving
-                ? "Enregistrement..."
-                : "Capturer"}
+              {saving ? "Enregistrement..." : "Capturer"}
             </button>
           </div>
         </>
