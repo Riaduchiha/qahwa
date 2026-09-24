@@ -91,7 +91,9 @@ function CommanderForm() {
     }
 
     clear();
-    router.push(`/commande/${result.orderId}`);
+    router.push(
+  `/commande/${result.orderId}?token=${result.confirmationToken}`
+);
   }
 
   return (

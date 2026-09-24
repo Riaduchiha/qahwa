@@ -60,6 +60,7 @@ export type OrderStatus =
 export type Order = {
   id: string;
   order_number: string;
+  confirmation_token: string | null;
   customer_name: string;
   customer_phone: string;
   order_type: OrderType;

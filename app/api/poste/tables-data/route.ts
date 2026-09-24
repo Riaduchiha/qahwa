@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -6,6 +8,22 @@ export const revalidate = 0;
 
 export async function GET() {
   try {
+    // Autorise la session Supabase classique (dashboard)
+    const supabaseAuth = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabaseAuth.auth.getUser();
+
+    // Ou la session Poste
+    const posteSession = cookies().get("poste_session")?.value === "ok";
+
+    if (!user && !posteSession) {
+      return NextResponse.json(
+        { error: "Non autorise." },
+        { status: 401 }
+      );
+    }
+
     const supabase = createSupabaseAdminClient();
 
     const { data: tables, error: tablesError } = await supabase

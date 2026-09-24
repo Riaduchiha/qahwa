@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes, randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { Database, OrderType } from "@/types/database";
 import type { CartItem } from "@/lib/store/cart";
@@ -14,10 +15,12 @@ function getSupabase() {
 function generateOrderNumber() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
+
   for (let i = 0; i < 5; i++) {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
-  return `QH-${code}`;
+
+  return "QH-" + code;
 }
 
 export type CreateOrderInput = {
@@ -34,12 +37,28 @@ export type CreateOrderInput = {
 
 export async function createOrder(
   input: CreateOrderInput
-): Promise<{ orderId: string; orderNumber: string } | { error: string }> {
+): Promise<
+  | {
+      orderId: string;
+      orderNumber: string;
+      confirmationToken: string;
+    }
+  | { error: string }
+> {
   if (input.items.length === 0) {
     return { error: "Le panier est vide." };
   }
+
   if (!input.customerName.trim() || !input.customerPhone.trim()) {
     return { error: "Nom et téléphone requis." };
+  }
+
+  if (
+    input.orderType !== "livraison" &&
+    input.orderType !== "emporter" &&
+    input.orderType !== "sur_place"
+  ) {
+    return { error: "Type de commande invalide." };
   }
 
   const supabase = getSupabase();
@@ -48,29 +67,30 @@ export async function createOrder(
     .map((item) => item.productId)
     .filter(Boolean);
 
-  // Prix officiels : on ne fait JAMAIS confiance au prix envoye par le
-  // navigateur. On recupere le vrai prix et la station depuis la base.
   const { data: products, error: productsError } = await supabase
     .from("products")
     .select("id, name, price, station, is_available")
     .in("id", productIds);
 
   if (productsError || !products) {
-    return { error: "Impossible de verifier les produits." };
+    return { error: "Impossible de vérifier les produits." };
   }
 
   const productById = new Map(products.map((p) => [p.id, p]));
 
   for (const item of input.items) {
     const product = productById.get(item.productId);
+
     if (!product) {
       return { error: `Produit introuvable : ${item.name}` };
     }
+
     if (!product.is_available) {
       return { error: `Produit indisponible : ${product.name}` };
     }
+
     if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
-      return { error: `Quantite invalide pour : ${product.name}` };
+      return { error: `Quantité invalide pour : ${product.name}` };
     }
   }
 
@@ -82,12 +102,16 @@ export async function createOrder(
   const deliveryFee = input.orderType === "livraison" ? 200 : 0;
   const total = subtotal + deliveryFee;
 
+  const orderId = randomUUID();
   const orderNumber = generateOrderNumber();
+  const confirmationToken = randomBytes(32).toString("hex");
 
-  const { data: order, error: orderError } = await supabase
+  const { error: orderError } = await supabase
     .from("orders")
     .insert({
+      id: orderId,
       order_number: orderNumber,
+      confirmation_token: confirmationToken,
       customer_name: input.customerName.trim(),
       customer_phone: input.customerPhone.trim(),
       order_type: input.orderType,
@@ -100,36 +124,35 @@ export async function createOrder(
       delivery_fee: deliveryFee,
       total,
       status: "recue",
-    })
-    .select()
-    .single();
+    });
 
-  if (orderError || !order) {
-    return { error: orderError?.message ?? "Erreur inconnue." };
+  if (orderError) {
+    return { error: orderError.message };
   }
 
-  const { error: itemsError } = await supabase.from("order_items").insert(
-    input.items.map((item) => {
-      const product = productById.get(item.productId)!;
-      return {
-        order_id: order.id,
-        product_id: item.productId,
-        product_name: product.name,
-        unit_price: product.price,
-        quantity: item.quantity,
-        line_total: product.price * item.quantity,
-        station: product.station ?? "barista",
-        status: "new",
-      };
-    })
-  );
+  const { error: itemsError } = await supabase
+    .from("order_items")
+    .insert(
+      input.items.map((item) => {
+        const product = productById.get(item.productId)!;
+
+        return {
+          order_id: orderId,
+          product_id: item.productId,
+          product_name: product.name,
+          unit_price: product.price,
+          quantity: item.quantity,
+          line_total: product.price * item.quantity,
+          station: product.station ?? "barista",
+          status: "new",
+        };
+      })
+    );
 
   if (itemsError) {
     return { error: itemsError.message };
   }
 
-  // Deduction automatique du stock des ingredients selon les recettes
-  // configurees dans Stock -> Fiches Recettes.
   try {
     const { data: recipeLines } = await supabase
       .from("product_ingredients")
@@ -142,10 +165,14 @@ export async function createOrder(
       );
 
       const deductionByIngredient = new Map<string, number>();
+
       for (const line of recipeLines) {
         const orderedQty = quantityByProduct.get(line.product_id) ?? 0;
+
         if (orderedQty <= 0) continue;
+
         const toDeduct = line.quantity_used * orderedQty;
+
         deductionByIngredient.set(
           line.ingredient_id,
           (deductionByIngredient.get(line.ingredient_id) ?? 0) + toDeduct
@@ -153,6 +180,7 @@ export async function createOrder(
       }
 
       const ingredientIds = [...deductionByIngredient.keys()];
+
       if (ingredientIds.length > 0) {
         const { data: currentIngredients } = await supabase
           .from("ingredients")
@@ -161,7 +189,12 @@ export async function createOrder(
 
         for (const ing of currentIngredients ?? []) {
           const toDeduct = deductionByIngredient.get(ing.id) ?? 0;
-          const newQuantity = Math.max(0, ing.quantity_in_stock - toDeduct);
+
+          const newQuantity = Math.max(
+            0,
+            ing.quantity_in_stock - toDeduct
+          );
+
           await supabase
             .from("ingredients")
             .update({ quantity_in_stock: newQuantity })
@@ -170,8 +203,12 @@ export async function createOrder(
       }
     }
   } catch {
-    // La deduction de stock ne doit jamais faire echouer la commande elle-meme.
+    // La déduction de stock ne doit jamais faire échouer la commande.
   }
 
-  return { orderId: order.id, orderNumber: order.order_number };
+  return {
+    orderId,
+    orderNumber,
+    confirmationToken,
+  };
 }

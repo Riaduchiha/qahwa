@@ -134,7 +134,7 @@ export default function CommandesPage() {
   }
 
   async function markPaid(orderId: string) {
-    const res = await fetch("/api/poste/table-action", {
+    const res = await fetch("/api/poste/tables-action", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ order_id: orderId, action: "paid" }),

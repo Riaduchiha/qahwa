@@ -1,6 +1,11 @@
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { Order, OrderItem, OrderStatus, OrderType } from "@/types/database";
+import type {
+  Order,
+  OrderItem,
+  OrderStatus,
+  OrderType,
+} from "@/types/database";
 
 export const dynamic = "force-dynamic";
 
@@ -25,16 +30,19 @@ const ORDER_TYPE_LABELS: Record<OrderType, string> = {
   sur_place: "Sur place",
 };
 
-async function getOrder(id: string) {
+async function getOrder(id: string, token: string) {
   const supabase = createSupabaseAdminClient();
 
   const { data: order, error: orderError } = await supabase
     .from("orders")
     .select("*")
     .eq("id", id)
+    .eq("confirmation_token", token)
     .single<Order>();
 
-  if (orderError || !order) return null;
+  if (orderError || !order) {
+    return null;
+  }
 
   const { data: items } = await supabase
     .from("order_items")
@@ -42,17 +50,30 @@ async function getOrder(id: string) {
     .eq("order_id", id)
     .returns<OrderItem[]>();
 
-  return { order, items: items ?? [] };
+  return {
+    order,
+    items: items ?? [],
+  };
 }
 
 export default async function OrderConfirmationPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { token?: string };
 }) {
-  const data = await getOrder(params.id);
+  const token = searchParams.token;
 
-  if (!data) notFound();
+  if (!token) {
+    notFound();
+  }
+
+  const data = await getOrder(params.id, token);
+
+  if (!data) {
+    notFound();
+  }
 
   const { order, items } = data;
 
@@ -61,6 +82,7 @@ export default async function OrderConfirmationPage({
       <p className="text-xs uppercase tracking-wide text-qahwa-blanc/50">
         Commande
       </p>
+
       <h1 className="font-display text-3xl uppercase text-qahwa-blanc">
         {order.order_number}
       </h1>
@@ -73,8 +95,14 @@ export default async function OrderConfirmationPage({
         <p className="font-display text-sm uppercase text-qahwa-blanc/70">
           {ORDER_TYPE_LABELS[order.order_type]}
         </p>
-        <p className="mt-1 text-sm text-qahwa-blanc">{order.customer_name}</p>
-        <p className="text-sm text-qahwa-blanc/60">{order.customer_phone}</p>
+
+        <p className="mt-1 text-sm text-qahwa-blanc">
+          {order.customer_name}
+        </p>
+
+        <p className="text-sm text-qahwa-blanc/60">
+          {order.customer_phone}
+        </p>
 
         {order.order_type === "livraison" && (
           <p className="mt-2 text-sm text-qahwa-blanc/60">
@@ -82,11 +110,13 @@ export default async function OrderConfirmationPage({
             {order.delivery_notes ? ` — ${order.delivery_notes}` : ""}
           </p>
         )}
+
         {order.order_type === "emporter" && order.pickup_time && (
           <p className="mt-2 text-sm text-qahwa-blanc/60">
             Heure souhaitée : {order.pickup_time}
           </p>
         )}
+
         {order.order_type === "sur_place" && order.table_number && (
           <p className="mt-2 text-sm text-qahwa-blanc/60">
             Table {order.table_number}
@@ -103,6 +133,7 @@ export default async function OrderConfirmationPage({
             <span>
               {item.quantity} × {item.product_name}
             </span>
+
             <span>{formatPrice(item.line_total)}</span>
           </li>
         ))}
@@ -113,14 +144,17 @@ export default async function OrderConfirmationPage({
           <span>Sous-total</span>
           <span>{formatPrice(order.subtotal)}</span>
         </div>
+
         {order.delivery_fee > 0 && (
           <div className="flex justify-between text-qahwa-blanc/70">
             <span>Frais de livraison</span>
             <span>{formatPrice(order.delivery_fee)}</span>
           </div>
         )}
+
         <div className="flex justify-between border-t-2 border-qahwa-blanc/20 pt-2 font-display text-lg text-qahwa-blanc">
           <span>Total</span>
+
           <span className="text-qahwa-orange">
             {formatPrice(order.total)}
           </span>
