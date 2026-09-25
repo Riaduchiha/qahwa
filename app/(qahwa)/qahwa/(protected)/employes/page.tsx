@@ -29,7 +29,7 @@ interface Schedule {
 }
 
 const inputClass =
-  "w-full rounded-lg border border-qahwa-border bg-qahwa-panel2 px-3 py-2 text-sm text-qahwa-text placeholder:text-qahwa-muted focus:outline-none focus:ring-2 focus:ring-qahwa-orange";
+  "w-full rounded-xl border border-qahwa-border bg-qahwa-panel2 px-3 py-2.5 text-sm text-qahwa-text placeholder:text-qahwa-muted focus:outline-none focus:ring-2 focus:ring-qahwa-orange";
 
 const BANNER_COLORS = [
   "bg-qahwa-orange",
@@ -87,6 +87,7 @@ export default function EmployeesPage() {
   const [uploading, setUploading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmp, setEditingEmp] = useState<Employee | null>(null);
+
   const [form, setForm] = useState({
     name: "",
     position: "",
@@ -104,6 +105,7 @@ export default function EmployeesPage() {
       .from("employees")
       .select("*")
       .order("name");
+
     if (data) setEmployees(data as Employee[]);
 
     const { data: events } = await supabase
@@ -113,17 +115,20 @@ export default function EmployeesPage() {
 
     if (events) {
       const map: Record<string, ClockEvent> = {};
+
       for (const ev of events as ClockEvent[]) {
         if (!map[ev.employee_id]) {
           map[ev.employee_id] = ev;
         }
       }
+
       setLastEvents(map);
     }
 
     const { data: schedData } = await supabase
       .from("employee_schedules")
       .select("employee_id, day_of_week, start_time");
+
     if (schedData) setSchedules(schedData as Schedule[]);
   }, [supabase]);
 
@@ -157,23 +162,34 @@ export default function EmployeesPage() {
 
   async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+
     if (!file) return;
+
     setUploading(true);
+
     const fileName = `avatar-${Date.now()}.jpg`;
+
     const { data } = await supabase.storage
       .from("employee-photos")
       .upload(fileName, file);
+
     if (data) {
       const { data: urlData } = supabase.storage
         .from("employee-photos")
         .getPublicUrl(data.path);
-      setForm((f) => ({ ...f, photo_url: urlData.publicUrl }));
+
+      setForm((f) => ({
+        ...f,
+        photo_url: urlData.publicUrl,
+      }));
     }
+
     setUploading(false);
   }
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+
     setLoading(true);
 
     const res = editingEmp
@@ -188,8 +204,19 @@ export default function EmployeesPage() {
 
     setIsModalOpen(false);
     setEditingEmp(null);
-    setForm({ name: "", position: "", phone: "", salary: 0, code: "", photo_url: null, active: true });
+
+    setForm({
+      name: "",
+      position: "",
+      phone: "",
+      salary: 0,
+      code: "",
+      photo_url: null,
+      active: true,
+    });
+
     await loadData();
+
     setLoading(false);
   };
 
@@ -206,81 +233,141 @@ export default function EmployeesPage() {
 
   function lateStatus(emp: Employee, ev: ClockEvent | undefined) {
     if (!ev || ev.event_type !== "in") return null;
+
     const day = dayOfWeekFromDate(ev.created_at);
+
     const sched = schedules.find(
       (s) => s.employee_id === emp.id && s.day_of_week === day
     );
+
     if (!sched) return "unknown";
+
     return isLate(ev.created_at, sched.start_time) ? "late" : "ontime";
   }
 
   const activeCount = employees.filter((e) => e.active).length;
 
   return (
-    <div className="space-y-6 p-6 text-qahwa-text">
+    <div className="space-y-6 p-4 text-qahwa-text sm:p-6">
       <style>{`
         @keyframes qahwa-pulse-green {
-          0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
-          50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(34,197,94,0); }
+          0%, 100% {
+            opacity: 1;
+            box-shadow: 0 0 0 0 rgba(34,197,94,0.5);
+          }
+          50% {
+            opacity: 0.7;
+            box-shadow: 0 0 0 4px rgba(34,197,94,0);
+          }
         }
+
         @keyframes qahwa-pulse-red {
-          0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
-          50% { opacity: 0.7; box-shadow: 0 0 0 5px rgba(239,68,68,0); }
+          0%, 100% {
+            opacity: 1;
+            box-shadow: 0 0 0 0 rgba(239,68,68,0.6);
+          }
+          50% {
+            opacity: 0.7;
+            box-shadow: 0 0 0 5px rgba(239,68,68,0);
+          }
         }
+
         @keyframes qahwa-pulse-blue {
-          0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(96,165,250,0.5); }
-          50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(96,165,250,0); }
+          0%, 100% {
+            opacity: 1;
+            box-shadow: 0 0 0 0 rgba(96,165,250,0.5);
+          }
+          50% {
+            opacity: 0.7;
+            box-shadow: 0 0 0 4px rgba(96,165,250,0);
+          }
         }
+
         .qahwa-pulse-dot {
           animation: qahwa-pulse-green 1.8s ease-in-out infinite;
         }
+
         .qahwa-pulse-red {
           animation: qahwa-pulse-red 1.2s ease-in-out infinite;
         }
+
         .qahwa-pulse-blue {
           animation: qahwa-pulse-blue 1.8s ease-in-out infinite;
         }
       `}</style>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* HEADER */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="font-display text-2xl uppercase text-qahwa-text">
-            Equipe
-          </h1>
-          <p className="text-xs text-qahwa-muted">
-            {activeCount} employe{activeCount > 1 ? "s" : ""} actif{activeCount > 1 ? "s" : ""} sur {employees.length}
-          </p>
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-1 rounded-full bg-qahwa-orange" />
+
+            <div>
+              <h1 className="font-display text-2xl uppercase tracking-wide text-qahwa-text">
+                Equipe
+              </h1>
+
+              <p className="mt-1 text-xs text-qahwa-muted">
+                {activeCount} employé{activeCount > 1 ? "s" : ""} actif
+                {activeCount > 1 ? "s" : ""} sur {employees.length}
+              </p>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/qahwa/employes/planning"
-            className="rounded-lg border border-qahwa-border bg-qahwa-panel2 px-4 py-2 font-display text-xs uppercase text-qahwa-text shadow-panel hover:border-qahwa-orange hover:text-qahwa-orange transition"
+            className="rounded-xl border border-qahwa-border bg-qahwa-panel px-4 py-2.5 text-xs font-display uppercase text-qahwa-text shadow-panel transition hover:border-qahwa-orange hover:text-qahwa-orange"
           >
             Planning
           </Link>
+
           <Link
             href="/qahwa/pointage"
-            className="rounded-lg border border-qahwa-border bg-qahwa-panel2 px-4 py-2 font-display text-xs uppercase text-qahwa-text shadow-panel hover:border-qahwa-orange hover:text-qahwa-orange transition"
+            className="rounded-xl border border-qahwa-border bg-qahwa-panel px-4 py-2.5 text-xs font-display uppercase text-qahwa-text shadow-panel transition hover:border-qahwa-orange hover:text-qahwa-orange"
           >
             Pointage
           </Link>
+
           <button
             onClick={() => {
               setEditingEmp(null);
-              setForm({ name: "", position: "", phone: "", salary: 0, code: "", photo_url: null, active: true });
+
+              setForm({
+                name: "",
+                position: "",
+                phone: "",
+                salary: 0,
+                code: "",
+                photo_url: null,
+                active: true,
+              });
+
               setIsModalOpen(true);
             }}
-            className="rounded-lg border border-qahwa-orange bg-qahwa-orange px-4 py-2 font-display text-xs uppercase text-qahwa-noir shadow-panel hover:bg-qahwa-orange/90"
+            className="rounded-xl border border-qahwa-orange bg-qahwa-orange px-4 py-2.5 text-xs font-display uppercase text-qahwa-noir shadow-panel transition hover:bg-qahwa-orange/90"
           >
             + Ajouter
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* EMPLOYEES */}
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {employees.length === 0 ? (
-          <div className="col-span-full rounded-xl border border-dashed border-qahwa-border bg-qahwa-panel p-10 text-center text-qahwa-muted">
-            Aucun employe pour le moment. Clique sur &quot;+ Ajouter&quot; pour commencer.
+          <div className="col-span-full rounded-2xl border border-dashed border-qahwa-border bg-qahwa-panel p-12 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl border border-qahwa-border bg-qahwa-panel2 text-xl text-qahwa-muted">
+              +
+            </div>
+
+            <p className="text-sm text-qahwa-muted">
+              Aucun employé pour le moment.
+            </p>
+
+            <p className="mt-1 text-xs text-qahwa-muted/70">
+              Clique sur « + Ajouter » pour commencer.
+            </p>
           </div>
         ) : (
           employees.map((emp) => {
@@ -292,91 +379,147 @@ export default function EmployeesPage() {
             let statusDotClass = "bg-qahwa-muted";
             let statusLabel = "Aucun pointage";
             let statusPulse = "";
+
             if (lastEvent) {
               if (isPresent) {
                 if (status === "late") {
                   statusDotClass = "bg-qahwa-rouge";
                   statusPulse = "qahwa-pulse-red";
-                  statusLabel = `Present depuis ${formatTime(lastEvent.created_at)} (retard)`;
+                  statusLabel = `Présent depuis ${formatTime(
+                    lastEvent.created_at
+                  )} · retard`;
                 } else {
                   statusDotClass = "bg-blue-400";
                   statusPulse = "qahwa-pulse-blue";
-                  statusLabel = `Present depuis ${formatTime(lastEvent.created_at)}`;
+                  statusLabel = `Présent depuis ${formatTime(
+                    lastEvent.created_at
+                  )}`;
                 }
               } else {
                 statusDotClass = "bg-qahwa-muted";
-                statusLabel = `Parti a ${formatTime(lastEvent.created_at)}`;
+                statusLabel = `Parti à ${formatTime(lastEvent.created_at)}`;
               }
             }
 
             return (
               <div
                 key={emp.id}
-                className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-panel backdrop-blur-xl transition hover:border-qahwa-orange/50"
+                className="group relative overflow-hidden rounded-2xl border border-white/10 bg-qahwa-panel shadow-panel transition duration-300 hover:-translate-y-1 hover:border-qahwa-orange/40 hover:shadow-2xl"
               >
+                {/* TOP COLOR */}
                 <div className={`h-1.5 ${BANNER_COLORS[idx]}`} />
-                <div className="p-4">
-                  <div className="flex items-center gap-3">
+
+                <div className="p-5">
+                  {/* PROFILE */}
+                  <div className="flex items-start gap-4">
                     {emp.photo_url ? (
-                      <img
-                        src={emp.photo_url}
-                        alt={emp.name}
-                        className="h-11 w-11 shrink-0 rounded-full object-cover"
-                      />
+                      <div className="relative shrink-0">
+                        <img
+                          src={emp.photo_url}
+                          alt={emp.name}
+                          className="h-14 w-14 rounded-2xl object-cover ring-1 ring-white/10"
+                        />
+
+                        <span
+                          className={`absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full border-2 border-qahwa-panel ${
+                            emp.active
+                              ? "qahwa-pulse-dot bg-qahwa-green"
+                              : "bg-qahwa-rouge"
+                          }`}
+                        />
+                      </div>
                     ) : (
-                      <div
-                        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full font-display text-base uppercase ${AVATAR_COLORS[idx]}`}
-                      >
-                        {emp.name.charAt(0)}
+                      <div className="relative shrink-0">
+                        <div
+                          className={`flex h-14 w-14 items-center justify-center rounded-2xl font-display text-lg uppercase ring-1 ring-white/10 ${AVATAR_COLORS[idx]}`}
+                        >
+                          {emp.name.charAt(0)}
+                        </div>
+
+                        <span
+                          className={`absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full border-2 border-qahwa-panel ${
+                            emp.active
+                              ? "qahwa-pulse-dot bg-qahwa-green"
+                              : "bg-qahwa-rouge"
+                          }`}
+                        />
                       </div>
                     )}
-                    <div className="min-w-0 flex-1">
+
+                    <div className="min-w-0 flex-1 pt-0.5">
                       <Link
                         href={`/qahwa/employes/${emp.id}`}
-                        className="truncate font-display text-base text-qahwa-text hover:text-qahwa-orange"
+                        className="block truncate font-display text-base uppercase tracking-wide text-qahwa-text transition hover:text-qahwa-orange"
                       >
                         {emp.name}
                       </Link>
-                      <p className="truncate text-xs uppercase tracking-wide text-qahwa-muted">
-                        {emp.position || "Employe"}
+
+                      <p className="mt-1 truncate text-[11px] uppercase tracking-[0.16em] text-qahwa-muted">
+                        {emp.position || "Employé"}
+                      </p>
+
+                      <span
+                        className={`mt-2 inline-flex items-center rounded-full px-2 py-1 text-[10px] font-display uppercase tracking-wide ${
+                          emp.active
+                            ? "bg-qahwa-green/10 text-qahwa-green"
+                            : "bg-qahwa-rouge/10 text-qahwa-rouge"
+                        }`}
+                      >
+                        {emp.active ? "Actif" : "Inactif"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* POINTAGE */}
+                  <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass} ${statusPulse}`}
+                      />
+
+                      <span className="truncate text-xs text-qahwa-muted">
+                        {statusLabel}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* INFOS */}
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <p className="text-[9px] uppercase tracking-wider text-qahwa-muted">
+                        Téléphone
+                      </p>
+
+                      <p className="mt-1 truncate text-xs text-qahwa-text">
+                        {emp.phone || "Non renseigné"}
                       </p>
                     </div>
-                    {emp.active ? (
-                      <span
-                        className="qahwa-pulse-dot h-2.5 w-2.5 shrink-0 rounded-full bg-qahwa-green"
-                        title="Actif"
-                      />
-                    ) : (
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full bg-qahwa-rouge"
-                        title="Inactif"
-                      />
-                    )}
+
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <p className="text-[9px] uppercase tracking-wider text-qahwa-muted">
+                        Salaire
+                      </p>
+
+                      <p className="mt-1 truncate font-display text-xs text-qahwa-orange">
+                        {emp.salary ? emp.salary.toLocaleString() : 0} DA
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="mt-3 flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs backdrop-blur-md">
-                    <span className={`h-1.5 w-1.5 rounded-full ${statusDotClass} ${statusPulse}`} />
-                    <span className="text-qahwa-muted">{statusLabel}</span>
-                  </div>
-
-                  <div className="mt-2 flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm backdrop-blur-md">
-                    <span className="text-qahwa-muted">{emp.phone || "Pas de tel"}</span>
-                    <span className="font-display text-qahwa-orange">
-                      {emp.salary ? emp.salary.toLocaleString() : 0} DA
-                    </span>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between">
+                  {/* ACTIONS */}
+                  <div className="mt-4 flex items-center justify-between border-t border-white/10 pt-4">
                     <Link
                       href={`/qahwa/employes/${emp.id}`}
-                      className="rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-qahwa-muted hover:border-qahwa-orange hover:text-qahwa-orange"
+                      className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-display uppercase text-qahwa-muted transition hover:border-qahwa-orange hover:text-qahwa-orange"
                     >
                       Voir la fiche
                     </Link>
-                    <div className="flex gap-2 opacity-0 transition group-hover:opacity-100">
+
+                    <div className="flex gap-2">
                       <button
                         onClick={() => {
                           setEditingEmp(emp);
+
                           setForm({
                             name: emp.name,
                             position: emp.position,
@@ -386,15 +529,17 @@ export default function EmployeesPage() {
                             photo_url: emp.photo_url,
                             active: emp.active,
                           });
+
                           setIsModalOpen(true);
                         }}
-                        className="rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-qahwa-muted hover:text-qahwa-text"
+                        className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-display uppercase text-qahwa-muted transition hover:border-white/20 hover:text-qahwa-text"
                       >
                         Modifier
                       </button>
+
                       <button
                         onClick={() => handleDelete(emp.id)}
-                        className="rounded border border-qahwa-rouge/40 bg-qahwa-rouge/10 px-2 py-1 text-xs text-qahwa-rouge"
+                        className="rounded-lg border border-qahwa-rouge/20 bg-qahwa-rouge/5 px-3 py-2 text-[11px] font-display uppercase text-qahwa-rouge transition hover:bg-qahwa-rouge/10"
                       >
                         Suppr.
                       </button>
@@ -407,119 +552,173 @@ export default function EmployeesPage() {
         )}
       </div>
 
+      {/* MODAL */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-xl border border-qahwa-border bg-qahwa-panel p-6 shadow-2xl space-y-4">
-            <h3 className="font-display text-lg uppercase text-qahwa-text">
-              {editingEmp ? "Modifier l'employe" : "Nouvel employe"}
-            </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-qahwa-border bg-qahwa-panel p-6 shadow-2xl">
+            <div className="mb-5">
+              <div className="mb-3 h-1 w-10 rounded-full bg-qahwa-orange" />
+
+              <h3 className="font-display text-lg uppercase tracking-wide text-qahwa-text">
+                {editingEmp ? "Modifier l'employé" : "Nouvel employé"}
+              </h3>
+
+              <p className="mt-1 text-xs text-qahwa-muted">
+                Informations du personnel QAHWA
+              </p>
+            </div>
+
             <form onSubmit={handleSave} className="space-y-4">
               <div>
-                <label className="block text-xs font-display uppercase text-qahwa-muted mb-1">
+                <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
                   Nom
                 </label>
+
                 <input
                   required
                   type="text"
                   value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, name: e.target.value })
+                  }
                   placeholder="Ex: Ines"
                   className={inputClass}
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-display uppercase text-qahwa-muted mb-1">
+                <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
                   Photo
                 </label>
+
                 <input
                   type="file"
                   accept="image/*"
                   onChange={handlePhotoUpload}
                   className={inputClass}
                 />
+
                 {uploading && (
-                  <p className="mt-1 text-xs text-qahwa-muted">Envoi en cours...</p>
+                  <p className="mt-1 text-xs text-qahwa-muted">
+                    Envoi en cours...
+                  </p>
                 )}
+
                 {form.photo_url && (
                   <img
                     src={form.photo_url}
                     alt=""
-                    className="mt-2 h-16 w-16 rounded-full object-cover"
+                    className="mt-3 h-16 w-16 rounded-2xl object-cover ring-1 ring-white/10"
                   />
                 )}
               </div>
+
               <div>
-                <label className="block text-xs font-display uppercase text-qahwa-muted mb-1">
+                <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
                   Poste
                 </label>
+
                 <input
                   type="text"
                   value={form.position}
-                  onChange={(e) => setForm({ ...form, position: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, position: e.target.value })
+                  }
                   placeholder="Ex: Barista"
                   className={inputClass}
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-display uppercase text-qahwa-muted mb-1">
-                  Telephone
+                <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
+                  Téléphone
                 </label>
+
                 <input
                   type="text"
                   value={form.phone}
-                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, phone: e.target.value })
+                  }
                   placeholder="Ex: 0555 00 00 00"
                   className={inputClass}
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-display uppercase text-qahwa-muted mb-1">
-                  Code personnel (pour le pointage)
+                <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
+                  Code personnel
                 </label>
+
                 <input
                   required
                   type="text"
                   value={form.code}
-                  onChange={(e) => setForm({ ...form, code: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, code: e.target.value })
+                  }
                   placeholder="Ex: 1234"
                   className={inputClass}
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-display uppercase text-qahwa-muted mb-1">
+                <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
                   Salaire mensuel (DA)
                 </label>
+
                 <input
                   type="number"
                   value={form.salary}
-                  onChange={(e) => setForm({ ...form, salary: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      salary: Number(e.target.value),
+                    })
+                  }
                   placeholder="Ex: 35000"
                   className={inputClass}
                 />
               </div>
-              <div className="flex items-center gap-2">
+
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
                 <input
                   type="checkbox"
                   id="active"
                   checked={form.active}
-                  onChange={(e) => setForm({ ...form, active: e.target.checked })}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      active: e.target.checked,
+                    })
+                  }
+                  className="h-4 w-4 accent-orange-500"
                 />
-                <label htmlFor="active" className="text-sm text-qahwa-text">
-                  Employe actif
-                </label>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
+
+                <span>
+                  <span className="block text-xs font-display uppercase text-qahwa-text">
+                    Employé actif
+                  </span>
+
+                  <span className="block text-[10px] text-qahwa-muted">
+                    Autorisé à utiliser le poste
+                  </span>
+                </span>
+              </label>
+
+              <div className="flex justify-end gap-2 border-t border-white/10 pt-4">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="rounded-lg border border-qahwa-border bg-qahwa-panel2 px-4 py-2 text-xs font-display uppercase text-qahwa-muted"
+                  className="rounded-xl border border-qahwa-border bg-qahwa-panel2 px-4 py-2.5 text-xs font-display uppercase text-qahwa-muted transition hover:text-qahwa-text"
                 >
                   Annuler
                 </button>
+
                 <button
                   type="submit"
                   disabled={loading}
-                  className="rounded-lg border border-qahwa-orange bg-qahwa-orange px-4 py-2 text-xs font-display uppercase text-qahwa-noir disabled:opacity-50"
+                  className="rounded-xl border border-qahwa-orange bg-qahwa-orange px-4 py-2.5 text-xs font-display uppercase text-qahwa-noir transition hover:bg-qahwa-orange/90 disabled:opacity-50"
                 >
                   {loading ? "Enregistrement..." : "Enregistrer"}
                 </button>

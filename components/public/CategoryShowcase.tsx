@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -19,239 +20,400 @@ export default function CategoryShowcase({
   const [index, setIndex] = useState(0);
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
+
   const addItem = useCartStore((state) => state.addItem);
 
   if (products.length === 0) return null;
 
-  const current = products[index];
-  const prev = products[(index - 1 + products.length) % products.length];
-  const next = products[(index + 1) % products.length];
-
-  if (!current || !prev || !next) return null;
+  const current = products[index]!;
+  const prev =
+    products[(index - 1 + products.length) % products.length]!;
+  const next = products[(index + 1) % products.length]!;
 
   function goTo(target: number) {
     setIndex(target);
     setQty(1);
+    setAdded(false);
   }
 
   function handleAdd() {
     addItem(
-      { productId: current!.id, name: current!.name, price: current!.price },
+      {
+        productId: current.id,
+        name: current.name,
+        price: current.price,
+      },
       qty
     );
+
     setAdded(true);
-    setTimeout(() => setAdded(false), 1200);
+
+    setTimeout(() => {
+      setAdded(false);
+    }, 1400);
   }
 
   return (
-    <div
+    <section
       id={category.slug}
-      className="relative scroll-mt-20 flex min-h-[640px] flex-col justify-center overflow-hidden bg-qahwa-noir py-14 sm:min-h-[760px]"
+      className="relative min-h-[680px] overflow-hidden bg-qahwa-noir py-16 sm:min-h-[760px] sm:py-20"
     >
       <style>{`
-        @keyframes qahwa-float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
+        @keyframes qahwa-product-in {
+          0% {
+            opacity: 0;
+            transform: translateY(18px) scale(0.94);
+          }
+
+          100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
         }
-        @keyframes qahwa-pop-in {
-          0% { opacity: 0; transform: scale(0.9) translateY(8px); }
-          100% { opacity: 1; transform: scale(1) translateY(0); }
+
+        @keyframes qahwa-product-float {
+          0%, 100% {
+            transform: translateY(0);
+          }
+
+          50% {
+            transform: translateY(-8px);
+          }
         }
-        .qahwa-float {
-          animation: qahwa-float 4s ease-in-out infinite;
+
+        @keyframes qahwa-cart-pop {
+          0% {
+            transform: scale(1);
+          }
+
+          35% {
+            transform: scale(0.94);
+          }
+
+          65% {
+            transform: scale(1.04);
+          }
+
+          100% {
+            transform: scale(1);
+          }
         }
-        .qahwa-pop-in {
-          animation: qahwa-pop-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+
+        @keyframes qahwa-added {
+          0% {
+            opacity: 0;
+            transform: translateY(8px) scale(0.9);
+          }
+
+          30% {
+            opacity: 1;
+            transform: translateY(0) scale(1.05);
+          }
+
+          100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+
+        @keyframes qahwa-check {
+          0% {
+            opacity: 0;
+            transform: scale(0.5) rotate(-15deg);
+          }
+
+          60% {
+            opacity: 1;
+            transform: scale(1.15) rotate(0);
+          }
+
+          100% {
+            opacity: 1;
+            transform: scale(1) rotate(0);
+          }
+        }
+
+        .qahwa-product-in {
+          animation: qahwa-product-in 0.45s ease-out;
+        }
+
+        .qahwa-product-float {
+          animation: qahwa-product-float 4s ease-in-out infinite;
+        }
+
+        .qahwa-cart-pop {
+          animation: qahwa-cart-pop 0.42s ease-out;
+        }
+
+        .qahwa-added {
+          animation: qahwa-added 0.35s ease-out;
+        }
+
+        .qahwa-check {
+          animation: qahwa-check 0.35s ease-out;
         }
       `}</style>
 
-      <div key={current.id} className="absolute inset-0">
-        {current.image_url ? (
+      {/* Fond */}
+      <div className="pointer-events-none absolute inset-0">
+        {current.image_url && (
           <Image
             src={current.image_url}
             alt=""
             fill
-            className="scale-125 object-cover opacity-40 blur-2xl"
+            className="scale-125 object-cover opacity-[0.07] blur-3xl"
           />
-        ) : (
-          <div className="h-full w-full bg-qahwa-orange/10" />
         )}
+
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,rgba(255,107,0,0.09),transparent_38%)]" />
+
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-qahwa-noir to-transparent" />
       </div>
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-qahwa-noir/50 via-qahwa-noir/75 to-qahwa-noir" />
 
-      <p className="relative z-10 px-6 font-display text-[11px] uppercase tracking-[0.25em] text-qahwa-orange sm:px-10">
-        Rejoins le club QAHWA
-      </p>
-      <h2 className="relative z-10 px-6 font-display text-5xl uppercase leading-[0.9] text-qahwa-blanc sm:px-10 sm:text-8xl">
-        {category.name}
-      </h2>
+      {/* Titre catégorie */}
+      <div className="relative z-10 mx-auto max-w-7xl px-5 sm:px-8">
+        <div className="flex items-end justify-between gap-6">
+          <h2 className="font-display text-5xl uppercase leading-[0.85] tracking-[-0.04em] text-qahwa-blanc sm:text-7xl lg:text-8xl">
+            {category.name}
+          </h2>
 
-      <div className="relative z-10 mt-10 flex items-center justify-between">
-        <button
-          onClick={() => goTo((index - 1 + products.length) % products.length)}
-          aria-label="Produit precedent"
-          className="z-30 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-qahwa-noir bg-qahwa-blanc font-display text-2xl text-qahwa-noir shadow-brutal sm:h-16 sm:w-16 sm:text-3xl"
-        >
-          &lsaquo;
-        </button>
+          <div className="hidden pb-1 text-right sm:block">
+            <p className="text-xs uppercase tracking-[0.18em] text-qahwa-blanc/25">
+              {products.length} produit
+              {products.length > 1 ? "s" : ""}
+            </p>
+          </div>
+        </div>
+      </div>
 
-        <div className="relative flex flex-1 items-center justify-center overflow-hidden">
+      {/* Zone principale */}
+      <div className="relative z-10 mx-auto mt-10 flex max-w-7xl items-center justify-center px-5 sm:mt-12 sm:px-8">
+        <div className="relative w-full max-w-[900px]">
+          {/* Produit précédent */}
           {products.length > 1 && (
             <button
+              type="button"
               onClick={() =>
                 goTo((index - 1 + products.length) % products.length)
               }
               aria-label={`Voir ${prev.name}`}
-              className="absolute left-0 z-10 hidden w-28 -translate-x-10 opacity-60 transition-opacity hover:opacity-90 sm:block lg:w-36"
+              className="absolute left-0 top-[265px] hidden w-32 -translate-x-2 opacity-20 transition-all hover:opacity-50 lg:block xl:w-40"
             >
-              <div className="relative h-52 w-full lg:h-64">
-                {prev.image_url ? (
+              <div className="relative h-48 w-full xl:h-56">
+                {prev.image_url && (
                   <Image
                     src={prev.image_url}
                     alt=""
                     fill
-                    className="object-contain drop-shadow-2xl"
+                    className="object-contain"
                   />
-                ) : null}
+                )}
               </div>
+
+              <p className="mt-2 truncate text-center text-[10px] uppercase tracking-wide text-qahwa-blanc/50">
+                {prev.name}
+              </p>
             </button>
           )}
 
-          <div
-            key={current.id}
-            className="qahwa-pop-in relative z-20 mx-2 w-full max-w-[300px] sm:mx-4 sm:max-w-md"
-          >
-            <div className="relative mx-auto h-72 w-full sm:h-[26rem]">
-              {current.image_url ? (
-                <>
-                  <div
-                    aria-hidden
-                    className="absolute left-1/2 top-1/2 h-[85%] w-[85%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-qahwa-orange/25 blur-3xl"
-                  />
-                  <div className="qahwa-float relative h-full w-full">
-                    <Image
-                      src={current.image_url}
-                      alt={current.name}
-                      fill
-                      className="object-contain drop-shadow-2xl"
-                      priority
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-qahwa-orange/30 bg-gradient-to-b from-qahwa-orange/10 to-transparent">
-                  <svg
-                    width="40"
-                    height="40"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    className="text-qahwa-orange/50"
-                  >
-                    <path
-                      d="M4 8h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8Z"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                    />
-                    <path
-                      d="M17 9h1.5a2.5 2.5 0 0 1 0 5H17"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                    />
-                    <path
-                      d="M8 4c0 1-1 1-1 2M12 4c0 1-1 1-1 2M16 4c0 1-1 1-1 2"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <span className="font-display text-[10px] uppercase tracking-wide text-qahwa-blanc/40">
-                    Photo a venir
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <h3 className="mt-4 text-center font-display text-2xl uppercase leading-tight text-qahwa-blanc sm:text-3xl">
-              {current.name}
-            </h3>
-            {current.description && (
-              <p className="mt-1 text-center text-xs text-qahwa-blanc/60">
-                {current.description}
-              </p>
-            )}
-
-            <div className="mt-5 flex items-center justify-center gap-2 rounded-full border-2 border-qahwa-blanc/30 bg-qahwa-blanc/10 px-2 py-1.5 backdrop-blur">
-              <button
-                onClick={() => setQty((q) => Math.max(1, q - 1))}
-                aria-label="Diminuer la quantite"
-                className="flex h-6 w-6 items-center justify-center font-display text-qahwa-blanc"
-              >
-                &minus;
-              </button>
-              <span className="w-4 text-center font-display text-sm text-qahwa-blanc">
-                {qty}
-              </span>
-              <button
-                onClick={() => setQty((q) => q + 1)}
-                aria-label="Augmenter la quantite"
-                className="flex h-6 w-6 items-center justify-center font-display text-qahwa-blanc"
-              >
-                +
-              </button>
-            </div>
-
-            <button
-              onClick={handleAdd}
-              className="qahwa-cta mt-3 flex w-full items-center justify-between rounded-full border-2 border-qahwa-noir bg-qahwa-orange py-3 pl-6 pr-2 font-display uppercase text-qahwa-noir shadow-brutal transition-transform active:scale-95"
-            >
-              <span>{added ? "Ajoute !" : "Ajouter"}</span>
-              <span className="rounded-full bg-qahwa-noir px-3 py-1.5 text-sm text-qahwa-orange">
-                {formatPrice(current.price * qty)}
-              </span>
-            </button>
-          </div>
-
+          {/* Produit suivant */}
           {products.length > 1 && (
             <button
+              type="button"
               onClick={() => goTo((index + 1) % products.length)}
               aria-label={`Voir ${next.name}`}
-              className="absolute right-0 z-10 hidden w-28 translate-x-10 opacity-60 transition-opacity hover:opacity-90 sm:block lg:w-36"
+              className="absolute right-0 top-[265px] hidden w-32 translate-x-2 opacity-20 transition-all hover:opacity-50 lg:block xl:w-40"
             >
-              <div className="relative h-52 w-full lg:h-64">
-                {next.image_url ? (
+              <div className="relative h-48 w-full xl:h-56">
+                {next.image_url && (
                   <Image
                     src={next.image_url}
                     alt=""
                     fill
-                    className="object-contain drop-shadow-2xl"
+                    className="object-contain"
                   />
-                ) : null}
+                )}
               </div>
+
+              <p className="mt-2 truncate text-center text-[10px] uppercase tracking-wide text-qahwa-blanc/50">
+                {next.name}
+              </p>
             </button>
           )}
-        </div>
 
-        <button
-          onClick={() => goTo((index + 1) % products.length)}
-          aria-label="Produit suivant"
-          className="z-30 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-qahwa-noir bg-qahwa-blanc font-display text-2xl text-qahwa-noir shadow-brutal sm:h-16 sm:w-16 sm:text-3xl"
-        >
-          &rsaquo;
-        </button>
+          {/* Flèche gauche */}
+          <button
+            type="button"
+            onClick={() =>
+              goTo((index - 1 + products.length) % products.length)
+            }
+            aria-label="Produit précédent"
+            className="group absolute left-1/2 top-[310px] z-30 flex h-11 w-11 -translate-x-[calc(50%+245px)] items-center justify-center rounded-full border border-qahwa-blanc/15 bg-qahwa-blanc/[0.04] text-xl leading-none text-qahwa-blanc transition-all hover:border-qahwa-orange/50 hover:bg-qahwa-orange hover:text-qahwa-noir active:scale-90 sm:top-[350px] sm:h-14 sm:w-14 sm:-translate-x-[calc(50%+320px)]"
+          >
+            <span className="block -translate-y-[1px] transition-transform group-hover:-translate-x-0.5">
+              ←
+            </span>
+          </button>
+
+          {/* Produit central */}
+          <div
+            key={current.id}
+            className="qahwa-product-in relative mx-auto w-full max-w-[430px]"
+          >
+            {/* Halo */}
+            <div className="pointer-events-none absolute left-1/2 top-[34%] h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-qahwa-orange/10 blur-[100px] sm:h-96 sm:w-96" />
+
+            {/* Image */}
+            <div className="relative mx-auto h-[310px] w-full sm:h-[410px]">
+              {current.image_url ? (
+                <div className="qahwa-product-float relative h-full w-full">
+                  <Image
+                    src={current.image_url}
+                    alt={current.name}
+                    fill
+                    className="object-contain drop-shadow-[0_30px_45px_rgba(0,0,0,0.7)]"
+                    priority
+                  />
+                </div>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <div className="flex h-56 w-56 items-center justify-center rounded-full border border-qahwa-blanc/10 bg-qahwa-blanc/[0.03]">
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-qahwa-blanc/20">
+                      Photo à venir
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Informations produit */}
+            <div className="relative z-20 mx-auto max-w-[390px] text-center">
+              <div className="mx-auto mb-5 flex items-center justify-center gap-3">
+                <span className="h-px w-8 bg-qahwa-blanc/10" />
+                <span className="h-1.5 w-1.5 rounded-full bg-qahwa-orange" />
+                <span className="h-px w-8 bg-qahwa-blanc/10" />
+              </div>
+
+              <h3 className="font-display text-3xl uppercase leading-[0.9] tracking-[-0.025em] text-qahwa-blanc sm:text-4xl">
+                {current.name}
+              </h3>
+
+              {current.description && (
+                <p className="mx-auto mt-4 max-w-[330px] text-sm leading-relaxed text-qahwa-blanc/45">
+                  {current.description}
+                </p>
+              )}
+
+              <div className="mt-5 flex items-center justify-center gap-3">
+                <span className="h-px w-10 bg-qahwa-blanc/10" />
+
+                <span className="font-display text-xl text-qahwa-orange">
+                  {formatPrice(current.price)}
+                </span>
+
+                <span className="h-px w-10 bg-qahwa-blanc/10" />
+              </div>
+
+              {/* Quantité + Ajouter */}
+              <div className="mt-7 flex items-center gap-3">
+                <div className="flex h-12 shrink-0 items-center rounded-full border border-qahwa-blanc/10 bg-qahwa-blanc/[0.035] px-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQty((q) => Math.max(1, q - 1))
+                    }
+                    aria-label="Diminuer la quantité"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-qahwa-blanc/50 transition hover:bg-qahwa-blanc/10 hover:text-qahwa-blanc"
+                  >
+                    −
+                  </button>
+
+                  <span className="w-7 text-center font-display text-sm text-qahwa-blanc">
+                    {qty}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setQty((q) => q + 1)}
+                    aria-label="Augmenter la quantité"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-qahwa-blanc/50 transition hover:bg-qahwa-blanc/10 hover:text-qahwa-blanc"
+                  >
+                    +
+                  </button>
+                </div>
+
+                {/* Bouton panier animé */}
+                <button
+                  type="button"
+                  onClick={handleAdd}
+                  className={`group flex h-12 flex-1 items-center justify-between rounded-full bg-qahwa-orange px-5 font-display uppercase text-qahwa-noir transition-all duration-200 hover:shadow-[0_10px_35px_rgba(255,107,0,0.18)] active:scale-95 ${
+                    added ? "qahwa-cart-pop" : ""
+                  }`}
+                >
+                  {added ? (
+                    <>
+                      <span className="qahwa-added flex items-center gap-2">
+                        <span className="qahwa-check text-base font-bold">
+                          ✓
+                        </span>
+                        <span>Ajouté au panier</span>
+                      </span>
+
+                      <span className="flex h-8 min-w-8 items-center justify-center rounded-full bg-qahwa-noir px-3 text-xs text-qahwa-orange">
+                        +{qty}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Ajouter</span>
+
+                      <span className="flex h-8 min-w-8 items-center justify-center rounded-full bg-qahwa-noir px-3 text-xs text-qahwa-orange transition-transform group-hover:scale-105">
+                        {formatPrice(current.price * qty)}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Flèche droite */}
+          <button
+            type="button"
+            onClick={() => goTo((index + 1) % products.length)}
+            aria-label="Produit suivant"
+            className="group absolute left-1/2 top-[310px] z-30 flex h-11 w-11 -translate-x-[calc(50%-245px)] items-center justify-center rounded-full border border-qahwa-blanc/15 bg-qahwa-blanc/[0.04] text-xl leading-none text-qahwa-blanc transition-all hover:border-qahwa-orange/50 hover:bg-qahwa-orange hover:text-qahwa-noir active:scale-90 sm:top-[350px] sm:h-14 sm:w-14 sm:-translate-x-[calc(50%-320px)]"
+          >
+            <span className="block -translate-y-[1px] transition-transform group-hover:translate-x-0.5">
+              →
+            </span>
+          </button>
+        </div>
       </div>
 
-      <div className="relative z-10 mt-8 flex justify-center gap-1.5">
-        {products.map((p, i) => (
+      {/* Indicateurs */}
+      <div className="relative z-20 mt-7 flex items-center justify-center gap-1.5">
+        {products.map((product, i) => (
           <button
-            key={p.id}
+            key={product.id}
+            type="button"
             onClick={() => goTo(i)}
-            aria-label={`Voir ${p.name}`}
-            className={`h-1.5 rounded-full transition-all ${
-              i === index ? "w-6 bg-qahwa-orange" : "w-1.5 bg-qahwa-blanc/30"
+            aria-label={`Voir ${product.name}`}
+            className={`h-1 rounded-full transition-all duration-300 ${
+              i === index
+                ? "w-8 bg-qahwa-orange"
+                : "w-2 bg-qahwa-blanc/20 hover:bg-qahwa-blanc/40"
             }`}
           />
         ))}
       </div>
-    </div>
+
+      {/* Compteur */}
+      <div className="absolute bottom-6 right-6 hidden font-display text-xs text-qahwa-blanc/20 sm:block">
+        {String(index + 1).padStart(2, "0")} /{" "}
+        {String(products.length).padStart(2, "0")}
+      </div>
+    </section>
   );
 }
+
