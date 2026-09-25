@@ -178,27 +178,29 @@ const NAV_ITEMS = [
   },
 ];
 
+function isActive(pathname: string, href: string) {
+  return (
+    pathname === href ||
+    (href !== "/qahwa" && pathname.startsWith(`${href}/`))
+  );
+}
+
 export default function SidebarNav() {
-  const [open, setOpen] = useState(true);
   const pathname = usePathname();
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const mobileMainItems = NAV_ITEMS.slice(0, 5);
+  const mobileMoreItems = NAV_ITEMS.slice(5);
 
   return (
     <>
-      <button
-        onClick={() => setOpen((value) => !value)}
-        aria-label={open ? "Fermer le menu" : "Ouvrir le menu"}
-        className="mb-2 self-end rounded-lg border border-qahwa-border bg-qahwa-panel2 px-3 py-2 text-xs text-qahwa-muted transition-all duration-200 hover:border-qahwa-orange/40 hover:text-qahwa-orange md:hidden"
-      >
-        {open ? "←" : "→"}
-      </button>
-
-      <div className={open ? "block" : "hidden md:block"}>
+      {/* =========================
+          DESKTOP SIDEBAR
+          ========================= */}
+      <div className="hidden h-full md:flex md:flex-col">
         <nav className="flex flex-col gap-1.5">
           {NAV_ITEMS.map((item) => {
-            const active =
-              pathname === item.href ||
-              (item.href !== "/qahwa" &&
-                pathname.startsWith(`${item.href}/`));
+            const active = isActive(pathname, item.href);
 
             return (
               <Link
@@ -246,9 +248,126 @@ export default function SidebarNav() {
           })}
         </nav>
 
-        <div className="mt-6 border-t border-qahwa-border/70 pt-4">
+        <div className="mt-auto border-t border-qahwa-border/70 pt-4">
           <LogoutButton />
         </div>
+      </div>
+
+      {/* =========================
+          MOBILE BOTTOM NAVIGATION
+          ========================= */}
+      <div className="fixed inset-x-0 bottom-0 z-[90] border-t border-qahwa-border bg-qahwa-panel px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.35)] md:hidden">
+        <div className="relative mx-auto flex h-[72px] max-w-xl items-center justify-around">
+          {mobileMainItems.map((item) => {
+            const active = isActive(pathname, item.href);
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-1 transition-colors ${
+                  active
+                    ? "text-qahwa-orange"
+                    : "text-qahwa-muted hover:text-qahwa-text"
+                }`}
+              >
+                <span
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl transition-all ${
+                    active
+                      ? "bg-qahwa-orange/10 text-qahwa-orange"
+                      : "text-qahwa-muted"
+                  }`}
+                >
+                  <span className="h-[20px] w-[20px]">{item.icon}</span>
+                </span>
+
+                <span
+                  className={`max-w-[64px] truncate text-[10px] leading-none ${
+                    active ? "font-semibold" : ""
+                  }`}
+                >
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
+
+          {/* PLUS */}
+          <button
+            type="button"
+            onClick={() => setMoreOpen((value) => !value)}
+            className={`flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-1 transition-colors ${
+              moreOpen ||
+              mobileMoreItems.some((item) => isActive(pathname, item.href))
+                ? "text-qahwa-orange"
+                : "text-qahwa-muted"
+            }`}
+          >
+            <span
+              className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+                moreOpen ||
+                mobileMoreItems.some((item) =>
+                  isActive(pathname, item.href)
+                )
+                  ? "bg-qahwa-orange/10"
+                  : ""
+              }`}
+            >
+              <span className="text-xl leading-none">•••</span>
+            </span>
+
+            <span className="text-[10px] leading-none">Plus</span>
+          </button>
+        </div>
+
+        {/* MENU PLUS */}
+        {moreOpen && (
+          <>
+            <button
+              type="button"
+              aria-label="Fermer le menu"
+              onClick={() => setMoreOpen(false)}
+              className="fixed inset-0 -z-10 bg-black/30"
+            />
+
+            <div className="absolute bottom-[76px] right-2 w-56 overflow-hidden rounded-2xl border border-qahwa-border bg-qahwa-panel p-2 shadow-2xl">
+              <div className="mb-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-qahwa-muted">
+                Plus
+              </div>
+
+              <div className="flex flex-col gap-1">
+                {mobileMoreItems.map((item) => {
+                  const active = isActive(pathname, item.href);
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMoreOpen(false)}
+                      className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
+                        active
+                          ? "bg-qahwa-orange/10 text-qahwa-orange"
+                          : "text-qahwa-muted hover:bg-qahwa-panel2 hover:text-qahwa-text"
+                      }`}
+                    >
+                      <span className="h-5 w-5 shrink-0">{item.icon}</span>
+
+                      <span className="text-sm">{item.label}</span>
+
+                      {active && (
+                        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-qahwa-orange" />
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+
+              <div className="mt-2 border-t border-qahwa-border pt-2">
+                <LogoutButton />
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </>
   );

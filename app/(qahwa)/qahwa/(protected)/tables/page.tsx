@@ -491,7 +491,7 @@ export default function QahwaTablesPage() {
         ))}
       </div>
 
-      <div className="mt-6 grid grid-cols-5 gap-2 sm:grid-cols-8 lg:grid-cols-10">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
         {tables.map((t) => {
           const status = statusFor(t);
           const style = STATUS_STYLES[status];

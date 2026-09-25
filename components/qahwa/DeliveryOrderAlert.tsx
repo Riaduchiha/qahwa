@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -11,19 +12,27 @@ interface DeliveryOrder {
 }
 
 function playDeliverySound() {
-  const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const ctx = new (window.AudioContext ||
+    (window as any).webkitAudioContext)();
   const now = ctx.currentTime;
 
   [0, 0.15, 0.3].forEach((delay) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+
     osc.type = "sine";
     osc.frequency.setValueAtTime(740, now + delay);
+
     gain.gain.setValueAtTime(0, now + delay);
     gain.gain.linearRampToValueAtTime(0.18, now + delay + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.3);
+    gain.gain.exponentialRampToValueAtTime(
+      0.001,
+      now + delay + 0.3
+    );
+
     osc.connect(gain);
     gain.connect(ctx.destination);
+
     osc.start(now + delay);
     osc.stop(now + delay + 0.31);
   });
@@ -31,14 +40,22 @@ function playDeliverySound() {
 
 export default function DeliveryOrderAlert() {
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  const supabase = useMemo(
+    () => createSupabaseBrowserClient(),
+    []
+  );
 
   useEffect(() => {
     const channel = supabase
       .channel("delivery-order-alert")
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "orders" },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "orders",
+        },
         (payload) => {
           const order = payload.new as {
             id: string;
@@ -47,6 +64,7 @@ export default function DeliveryOrderAlert() {
             total: number;
             order_type: string;
           };
+
           if (order.order_type !== "livraison") return;
 
           setOrders((prev) => [
@@ -62,7 +80,7 @@ export default function DeliveryOrderAlert() {
           try {
             playDeliverySound();
           } catch {
-            // ignore si le navigateur bloque le son
+            // Le navigateur peut bloquer le son.
           }
         }
       )
@@ -80,28 +98,40 @@ export default function DeliveryOrderAlert() {
   if (orders.length === 0) return null;
 
   return (
-    <div className="w-80 max-w-[90vw] space-y-2">
+    <div className="w-[calc(100vw-24px)] max-w-[360px] space-y-2">
       {orders.map((o) => (
         <div
           key={o.id}
-          className="rounded-2xl border border-purple-400/40 bg-purple-500/15 p-4 shadow-2xl backdrop-blur-xl"
+          className="overflow-hidden rounded-[20px] border border-white/20 bg-transparent shadow-[0_8px_32px_rgba(0,0,0,0.25),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-[32px] backdrop-saturate-[180%]"
         >
-          <div className="flex items-start gap-3">
-            <span className="text-xl">🛵</span>
-            <div className="flex-1">
-              <p className="mb-1 text-sm font-bold text-white">
+          <div className="h-[2px] bg-purple-400/70" />
+
+          <div className="flex items-center gap-3 px-3.5 py-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-purple-400/15">
+              <span className="text-xl">🛵</span>
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-semibold tracking-tight text-white">
                 Nouvelle commande livraison
               </p>
-              <p className="text-xs text-white/80">
-                {o.order_number} — {o.customer_name}
+
+              <p className="mt-0.5 truncate text-[11px] text-white/60">
+                {o.order_number} · {o.customer_name}
               </p>
-              <p className="text-xs text-white/60">{o.total} DA</p>
+
+              <p className="mt-0.5 text-[11px] font-medium text-white/45">
+                {o.total} DA
+              </p>
             </div>
+
             <button
+              type="button"
               onClick={() => dismiss(o.id)}
-              className="text-sm font-bold text-white/70 hover:text-white"
+              aria-label="Fermer"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-[15px] text-white/55 transition hover:bg-white/20 hover:text-white"
             >
-              ✕
+              ×
             </button>
           </div>
         </div>
@@ -109,3 +139,4 @@ export default function DeliveryOrderAlert() {
     </div>
   );
 }
+
