@@ -32,7 +32,7 @@ export default function AdminPage() {
       return;
     }
 
-    router.push("/qahwa");
+    router.push("/qahwa/admin/dashboard");
     router.refresh();
   }
 

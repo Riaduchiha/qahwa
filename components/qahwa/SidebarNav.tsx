@@ -7,7 +7,7 @@ import LogoutButton from "@/components/qahwa/LogoutButton";
 
 const NAV_ITEMS = [
   {
-    href: "/qahwa",
+    href: "",
     label: "Dashboard",
     icon: (
       <svg
@@ -24,7 +24,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/qahwa/commandes",
+    href: "/commandes",
     label: "Commandes",
     icon: (
       <svg
@@ -40,7 +40,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/qahwa/menu",
+    href: "/menu",
     label: "Menu",
     icon: (
       <svg
@@ -59,7 +59,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/qahwa/stock",
+    href: "/stock",
     label: "Stock",
     icon: (
       <svg
@@ -76,7 +76,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/qahwa/evenements",
+    href: "/evenements",
     label: "Calendrier",
     icon: (
       <svg
@@ -93,7 +93,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/qahwa/tables",
+    href: "/tables",
     label: "Tables",
     icon: (
       <svg
@@ -110,7 +110,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/qahwa/employes",
+    href: "/employes",
     label: "Employés",
     icon: (
       <svg
@@ -126,7 +126,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/qahwa/play",
+    href: "/play",
     label: "PLAY",
     icon: (
       <svg
@@ -142,7 +142,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/qahwa/statistiques",
+    href: "/statistiques",
     label: "Statistiques",
     icon: (
       <svg
@@ -160,7 +160,7 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/qahwa/parametres",
+    href: "/parametres",
     label: "Paramètres",
     icon: (
       <svg
@@ -178,14 +178,30 @@ const NAV_ITEMS = [
   },
 ];
 
-function isActive(pathname: string, href: string) {
+function getFullHref(itemHref: string, basePath: string) {
+  if (itemHref === "") {
+    return basePath === "/qahwa/admin"
+      ? `${basePath}/dashboard`
+      : basePath;
+  }
+
+  return `${basePath}${itemHref}`;
+}
+
+function isActive(pathname: string, href: string, basePath: string) {
+  const fullHref = getFullHref(href, basePath);
+
   return (
-    pathname === href ||
-    (href !== "/qahwa" && pathname.startsWith(`${href}/`))
+    pathname === fullHref ||
+    (href !== "" && pathname.startsWith(`${fullHref}/`))
   );
 }
 
-export default function SidebarNav() {
+export default function SidebarNav({
+  basePath = "/qahwa",
+}: {
+  basePath?: string;
+}) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -200,12 +216,13 @@ export default function SidebarNav() {
       <div className="hidden h-full md:flex md:flex-col">
         <nav className="flex flex-col gap-1.5">
           {NAV_ITEMS.map((item) => {
-            const active = isActive(pathname, item.href);
+            const active = isActive(pathname, item.href, basePath);
+            const href = getFullHref(item.href, basePath);
 
             return (
               <Link
-                key={item.href}
-                href={item.href}
+                key={href}
+                href={href}
                 className={`group relative flex items-center gap-3 overflow-hidden rounded-xl px-3 py-2.5 transition-all duration-200 ${
                   active
                     ? "bg-qahwa-panel2 text-qahwa-orange shadow-[inset_0_0_0_1px_rgba(255,107,0,0.12)]"
@@ -259,12 +276,13 @@ export default function SidebarNav() {
       <div className="fixed inset-x-0 bottom-0 z-[90] border-t border-qahwa-border bg-qahwa-panel px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.35)] md:hidden">
         <div className="relative mx-auto flex h-[72px] max-w-xl items-center justify-around">
           {mobileMainItems.map((item) => {
-            const active = isActive(pathname, item.href);
+            const active = isActive(pathname, item.href, basePath);
+            const href = getFullHref(item.href, basePath);
 
             return (
               <Link
-                key={item.href}
-                href={item.href}
+                key={href}
+                href={href}
                 className={`flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-1 transition-colors ${
                   active
                     ? "text-qahwa-orange"
@@ -298,7 +316,9 @@ export default function SidebarNav() {
             onClick={() => setMoreOpen((value) => !value)}
             className={`flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-1 transition-colors ${
               moreOpen ||
-              mobileMoreItems.some((item) => isActive(pathname, item.href))
+              mobileMoreItems.some((item) =>
+                isActive(pathname, item.href, basePath)
+              )
                 ? "text-qahwa-orange"
                 : "text-qahwa-muted"
             }`}
@@ -307,7 +327,7 @@ export default function SidebarNav() {
               className={`flex h-9 w-9 items-center justify-center rounded-xl ${
                 moreOpen ||
                 mobileMoreItems.some((item) =>
-                  isActive(pathname, item.href)
+                  isActive(pathname, item.href, basePath)
                 )
                   ? "bg-qahwa-orange/10"
                   : ""
@@ -337,12 +357,13 @@ export default function SidebarNav() {
 
               <div className="flex flex-col gap-1">
                 {mobileMoreItems.map((item) => {
-                  const active = isActive(pathname, item.href);
+                  const active = isActive(pathname, item.href, basePath);
+                  const href = getFullHref(item.href, basePath);
 
                   return (
                     <Link
-                      key={item.href}
-                      href={item.href}
+                      key={href}
+                      href={href}
                       onClick={() => setMoreOpen(false)}
                       className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
                         active
