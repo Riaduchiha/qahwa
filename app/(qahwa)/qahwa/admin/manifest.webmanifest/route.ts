@@ -2,15 +2,16 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
   return NextResponse.json({
-    id: "/qahwa/admin",
-    name: "QAHWA Admin",
-    short_name: "QAHWA Admin",
-    description: "Gestion administrative QAHWA",
-    start_url: "/qahwa/admin",
-    scope: "/qahwa/admin",
+    id: "/qahwa",
+    name: "QAHWA",
+    short_name: "QAHWA",
+    description: "Application QAHWA",
+    start_url: "/qahwa",
+    scope: "/qahwa/",
     display: "standalone",
-    background_color: "#111111",
-    theme_color: "#111111",
+    background_color: "#0A0A0A",
+    theme_color: "#0A0A0A",
+
     icons: [
       {
         src: "/icon-192.png",
