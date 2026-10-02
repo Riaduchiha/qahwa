@@ -6,271 +6,420 @@ import { useRouter } from "next/navigation";
 type OutType = "temporary" | "final";
 
 export default function CheckOutButton() {
-  const router = useRouter();
+const router = useRouter();
 
-  const [open, setOpen] = useState(false);
-  const [outType, setOutType] = useState<OutType>("final");
-  const [saving, setSaving] = useState(false);
-  const [employeeName, setEmployeeName] = useState<string | null>(null);
+const [open, setOpen] = useState(false);
+const [outType, setOutType] = useState<OutType>("final");
+const [saving, setSaving] = useState(false);
+const [employeeName, setEmployeeName] = useState<string | null>(null);
 
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+const videoRef = useRef<HTMLVideoElement | null>(null);
+const canvasRef = useRef<HTMLCanvasElement | null>(null);
+const streamRef = useRef<MediaStream | null>(null);
 
-  useEffect(() => {
-    const raw = localStorage.getItem("qahwa-poste-employee");
+useEffect(() => {
+const raw = localStorage.getItem("qahwa-poste-employee");
 
-    if (!raw) return;
 
-    try {
-      const parsed = JSON.parse(raw);
-      setEmployeeName(parsed.name ?? null);
-    } catch {
-      localStorage.removeItem("qahwa-poste-employee");
-    }
-  }, []);
+if (!raw) return;
 
-  async function openCamera(type: OutType) {
-    setOutType(type);
-    setOpen(true);
+try {
+  const parsed = JSON.parse(raw);
+  setEmployeeName(parsed.name ?? null);
+} catch {
+  localStorage.removeItem("qahwa-poste-employee");
+}
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-      });
 
-      streamRef.current = stream;
+}, []);
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch {
-      alert("Impossible d'acceder a la camera.");
-      setOpen(false);
-    }
+async function openCamera(type: OutType) {
+setOutType(type);
+setOpen(true);
+
+try {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: true,
+  });
+
+  streamRef.current = stream;
+
+  if (videoRef.current) {
+    videoRef.current.srcObject = stream;
   }
+} catch {
+  alert("Impossible d'acceder a la camera.");
+  setOpen(false);
+}
 
-  function stopCamera() {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => {
-        track.stop();
-      });
 
-      streamRef.current = null;
-    }
-  }
+}
 
-  function closeCamera() {
-    stopCamera();
-    setOpen(false);
-  }
+function stopCamera() {
+if (streamRef.current) {
+streamRef.current.getTracks().forEach((track) => {
+track.stop();
+});
 
-  async function handleCapture() {
-    const raw = localStorage.getItem("qahwa-poste-employee");
 
-    if (
-      !raw ||
-      !videoRef.current ||
-      !canvasRef.current ||
-      saving
-    ) {
-      return;
-    }
+  streamRef.current = null;
+}
 
-    let employee: {
-      id: string;
-      name?: string;
-    };
 
-    try {
-      employee = JSON.parse(raw);
-    } catch {
-      localStorage.removeItem("qahwa-poste-employee");
-      setOpen(false);
-      return;
-    }
+}
 
-    setSaving(true);
+function closeCamera() {
+stopCamera();
+setOpen(false);
+}
 
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
+async function handleCapture() {
+const raw = localStorage.getItem("qahwa-poste-employee");
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
 
-    const ctx = canvas.getContext("2d");
+if (
+  !raw ||
+  !videoRef.current ||
+  !canvasRef.current ||
+  saving
+) {
+  return;
+}
 
-    if (!ctx) {
+let employee: {
+  id: string;
+  name?: string;
+};
+
+try {
+  employee = JSON.parse(raw);
+} catch {
+  localStorage.removeItem("qahwa-poste-employee");
+  setOpen(false);
+  return;
+}
+
+setSaving(true);
+
+const video = videoRef.current;
+const canvas = canvasRef.current;
+
+canvas.width = video.videoWidth;
+canvas.height = video.videoHeight;
+
+const ctx = canvas.getContext("2d");
+
+if (!ctx) {
+  setSaving(false);
+  return;
+}
+
+ctx.drawImage(
+  video,
+  0,
+  0,
+  canvas.width,
+  canvas.height
+);
+
+canvas.toBlob(
+  async (blob) => {
+    if (!blob) {
       setSaving(false);
       return;
     }
 
-    ctx.drawImage(
-      video,
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
+    try {
+      const formData = new FormData();
 
-    canvas.toBlob(
-      async (blob) => {
-        if (!blob) {
-          setSaving(false);
-          return;
+      formData.append(
+        "employee_id",
+        employee.id
+      );
+
+      formData.append(
+        "event_type",
+        "out"
+      );
+
+      formData.append(
+        "out_type",
+        outType
+      );
+
+      formData.append(
+        "photo",
+        blob,
+        "photo.jpg"
+      );
+
+      const res = await fetch(
+        "/api/poste/clock-event",
+        {
+          method: "POST",
+          body: formData,
         }
+      );
 
-        try {
-          const formData = new FormData();
+      if (!res.ok) {
+        const data = await res.json();
 
-          formData.append(
-            "employee_id",
-            employee.id
-          );
+        alert(
+          "Erreur enregistrement : " +
+            (data.error || "Erreur inconnue.")
+        );
 
-          formData.append(
-            "event_type",
-            "out"
-          );
+        setSaving(false);
+        return;
+      }
 
-          formData.append(
-            "out_type",
-            outType
-          );
+      localStorage.removeItem(
+        "qahwa-poste-employee"
+      );
 
-          formData.append(
-            "photo",
-            blob,
-            "photo.jpg"
-          );
+      stopCamera();
 
-          const res = await fetch(
-            "/api/poste/clock-event",
-            {
-              method: "POST",
-              body: formData,
-            }
-          );
+      setSaving(false);
+      setOpen(false);
 
-          if (!res.ok) {
-            const data = await res.json();
+      window.location.replace(
+        "/qahwa/poste"
+      );
+    } catch (error) {
+      console.error(error);
 
-            alert(
-              "Erreur enregistrement : " +
-                (data.error || "Erreur inconnue.")
-            );
+      alert(
+        "Une erreur est survenue pendant l'enregistrement."
+      );
 
-            setSaving(false);
-            return;
-          }
+      setSaving(false);
+    }
+  },
+  "image/jpeg",
+  0.85
+);
 
-          /*
-           * IMPORTANT :
-           * On supprime TOUJOURS la session locale
-           * après une sortie temporaire OU finale.
-           *
-           * Sinon /qahwa/poste détecte encore
-           * l'employé et le renvoie automatiquement
-           * vers son poste.
-           */
-          localStorage.removeItem(
-            "qahwa-poste-employee"
-          );
 
-          stopCamera();
+}
 
-          setSaving(false);
-          setOpen(false);
+return (
+<> <style>{`
+@keyframes qahwa-checkout-glow {
+0%,
+100% {
+transform: scale(1);
+opacity: 0.45;
+}
 
-          /*
-           * On revient à l'écran de connexion du poste.
-           * L'employé devra remettre son code pour
-           * enregistrer son retour après une sortie temporaire.
-           */
-          window.location.replace(
-            "/qahwa/poste"
-          );
-        } catch (error) {
-          console.error(error);
 
-          alert(
-            "Une erreur est survenue pendant l'enregistrement."
-          );
+      50% {
+        transform: scale(1.12);
+        opacity: 0.7;
+      }
+    }
 
-          setSaving(false);
-        }
-      },
-      "image/jpeg",
-      0.85
-    );
-  }
+    @keyframes qahwa-checkout-in {
+      0% {
+        opacity: 0;
+        transform: scale(0.94) translateY(12px);
+      }
 
-  return (
-    <>
-      <div className="fixed bottom-4 right-4 z-40 flex gap-2">
-        <button
-          onClick={() =>
-            openCamera("temporary")
-          }
-          className="rounded-full border border-qahwa-orange/40 bg-qahwa-orange/15 px-4 py-2.5 font-display text-xs uppercase text-qahwa-orange shadow-panel backdrop-blur-md"
-        >
-          Sortie temporaire
-        </button>
+      100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
 
-        <button
-          onClick={() =>
-            openCamera("final")
-          }
-          className="rounded-full border border-qahwa-rouge/40 bg-qahwa-rouge/15 px-4 py-2.5 font-display text-xs uppercase text-qahwa-rouge shadow-panel backdrop-blur-md"
-        >
-          {employeeName
-            ? `${employeeName} — Terminer ma journee`
-            : "Terminer ma journee"}
-        </button>
-      </div>
+    .qahwa-checkout-glow {
+      animation: qahwa-checkout-glow 5s ease-in-out infinite;
+    }
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/90 p-6">
-          <p className="font-display text-lg uppercase text-white">
-            {outType === "temporary"
-              ? "Sortie temporaire"
-              : "Sortie finale"}{" "}
-            — prends une photo
-          </p>
+    .qahwa-checkout-in {
+      animation: qahwa-checkout-in 0.35s
+        cubic-bezier(0.22, 1, 0.36, 1);
+    }
+  `}</style>
 
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            className="w-full max-w-sm rounded-xl border border-white/20 shadow-panel"
-          />
+  {/* BOUTONS CHECKOUT */}
+  <div className="fixed bottom-4 left-4 right-4 z-40 flex flex-col gap-2 sm:left-auto sm:right-5 sm:flex-row">
+    <button
+      type="button"
+      onClick={() =>
+        openCamera("temporary")
+      }
+      className="rounded-2xl border border-qahwa-orange/40 bg-qahwa-panel/95 px-5 py-3 font-display text-xs uppercase tracking-wide text-qahwa-orange shadow-2xl backdrop-blur-xl transition hover:border-qahwa-orange hover:bg-qahwa-orange/10 active:scale-95"
+    >
+      Sortie temporaire
+    </button>
+
+    <button
+      type="button"
+      onClick={() =>
+        openCamera("final")
+      }
+      className="rounded-2xl border border-qahwa-rouge/40 bg-qahwa-rouge/10 px-5 py-3 font-display text-xs uppercase tracking-wide text-qahwa-rouge shadow-2xl backdrop-blur-xl transition hover:border-qahwa-rouge hover:bg-qahwa-rouge/15 active:scale-95"
+    >
+      {employeeName
+        ? `${employeeName} — Terminer ma journee`
+        : "Terminer ma journee"}
+    </button>
+  </div>
+
+  {/* CHECKOUT CAMERA */}
+  {open && (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/90 px-4 py-6 backdrop-blur-md">
+      <div className="qahwa-checkout-in relative w-full max-w-md">
+        {/* GLOW */}
+        <div
+          aria-hidden
+          className="qahwa-checkout-glow pointer-events-none absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-qahwa-orange/10 blur-3xl"
+        />
+
+        {/* CARD */}
+        <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-qahwa-panel/95 p-5 shadow-2xl backdrop-blur-xl sm:p-6">
+          {/* HEADER */}
+          <div className="mb-6 flex flex-col items-center text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-black/40 shadow-xl">
+              <img
+                src="/logo-white.png"
+                alt="Qahwa"
+                className="h-9 w-9 object-contain"
+              />
+            </div>
+
+            <h2 className="mt-4 font-display text-2xl uppercase tracking-[0.14em] text-qahwa-text">
+              QAHWA
+            </h2>
+
+            <div className="mt-2 flex items-center gap-2">
+              <span
+                className={`h-px w-6 ${
+                  outType === "temporary"
+                    ? "bg-qahwa-orange"
+                    : "bg-qahwa-rouge"
+                }`}
+              />
+
+              <span
+                className={`text-[10px] font-display uppercase tracking-[0.2em] ${
+                  outType === "temporary"
+                    ? "text-qahwa-orange"
+                    : "text-qahwa-rouge"
+                }`}
+              >
+                {outType === "temporary"
+                  ? "Sortie temporaire"
+                  : "Sortie finale"}
+              </span>
+
+              <span
+                className={`h-px w-6 ${
+                  outType === "temporary"
+                    ? "bg-qahwa-orange"
+                    : "bg-qahwa-rouge"
+                }`}
+              />
+            </div>
+          </div>
+
+          {/* EMPLOYE */}
+          <div className="mb-5 rounded-2xl border border-white/10 bg-black/25 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-qahwa-orange/10 ring-1 ring-qahwa-orange/20">
+                <span className="font-display text-lg uppercase text-qahwa-orange">
+                  {employeeName
+                    ? employeeName.charAt(0)
+                    : "Q"}
+                </span>
+              </div>
+
+              <div className="min-w-0">
+                <p className="truncate font-display text-sm uppercase tracking-wide text-qahwa-text">
+                  {employeeName ||
+                    "Employé"}
+                </p>
+
+                <p className="mt-0.5 text-[10px] uppercase tracking-wider text-qahwa-muted">
+                  Confirmation de sortie
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* TEXTE */}
+          <div className="mb-4 text-center">
+            <p className="text-sm text-qahwa-muted">
+              Prends une photo avant de terminer.
+            </p>
+          </div>
+
+          {/* CAMERA */}
+          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              className="aspect-[4/3] w-full object-cover"
+            />
+
+            {/* CADRE CAMERA */}
+            <div className="pointer-events-none absolute inset-4 rounded-2xl border border-white/20" />
+
+            <div className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full border border-qahwa-orange/40" />
+
+            {/* INDICATEUR */}
+            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-black/60 px-3 py-1.5 backdrop-blur-md">
+              <span className="h-1.5 w-1.5 rounded-full bg-qahwa-green" />
+
+              <span className="text-[9px] uppercase tracking-wider text-white/70">
+                Camera active
+              </span>
+            </div>
+          </div>
 
           <canvas
             ref={canvasRef}
             className="hidden"
           />
 
-          <div className="flex gap-3">
+          {/* ACTIONS */}
+          <div className="mt-5 grid grid-cols-2 gap-3">
             <button
+              type="button"
               onClick={closeCamera}
               disabled={saving}
-              className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-display uppercase text-white disabled:opacity-50"
+              className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 font-display text-xs uppercase tracking-wide text-qahwa-muted transition hover:border-white/20 hover:text-qahwa-text active:scale-95 disabled:opacity-40"
             >
               Annuler
             </button>
 
             <button
+              type="button"
               onClick={handleCapture}
               disabled={saving}
-              className="rounded-lg border border-qahwa-orange bg-qahwa-orange px-6 py-2 text-sm font-display uppercase text-qahwa-noir disabled:opacity-50"
+              className={`rounded-2xl px-4 py-4 font-display text-xs uppercase tracking-wide text-qahwa-noir shadow-[0_0_24px_rgba(255,107,0,0.16)] transition active:scale-95 disabled:opacity-50 ${
+                outType === "temporary"
+                  ? "border border-qahwa-orange bg-qahwa-orange hover:bg-qahwa-orange/90"
+                  : "border border-qahwa-rouge bg-qahwa-rouge hover:bg-qahwa-rouge/90"
+              }`}
             >
               {saving
                 ? "Enregistrement..."
                 : "Capturer"}
             </button>
           </div>
+
+          {/* SECURITE */}
+          <div className="mt-5 flex items-center justify-center gap-2 text-[9px] uppercase tracking-[0.18em] text-qahwa-muted">
+            <span className="h-1.5 w-1.5 rounded-full bg-qahwa-green" />
+            Poste sécurisé
+          </div>
         </div>
-      )}
-    </>
-  );
+      </div>
+    </div>
+  )}
+</>
+
+
+);
 }

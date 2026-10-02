@@ -448,7 +448,7 @@ export default function EmployeesPage() {
 
                     <div className="min-w-0 flex-1 pt-0.5">
                       <Link
-                        href={`/qahwa/employes/${emp.id}`}
+                        href={`/qahwa/admin/employes/${emp.id}`}
                         className="block truncate font-display text-base uppercase tracking-wide text-qahwa-text transition hover:text-qahwa-orange"
                       >
                         {emp.name}

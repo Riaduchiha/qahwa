@@ -126,13 +126,12 @@ export async function POST(request: Request) {
     status,
   });
 
-  response.cookies.set("poste_session", sessionToken, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 12,
-  });
-
+ response.cookies.set("poste_session", sessionToken, {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  path: "/",
+  maxAge: 60 * 60 * 12,
+});
   return response;
 }

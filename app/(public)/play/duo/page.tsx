@@ -5,6 +5,7 @@ type DuoGame = { slug: string; title: string; description: string; hue: string }
 const DUO_GAMES: DuoGame[] = [
   { slug: "mot-mystere", title: "Mot Mystere", description: "Decris le mot a ton binome sans le dire.", hue: "#38BDF8" },
   { slug: "echecs", title: "Echecs", description: "Face a face, une partie classique en duo.", hue: "#FF6B00" },
+  { slug: "domino", title: "Domino", description: "Affronte ton binome sur deux telephones.", hue: "#A78BFA" },
 ];
 
 function GameIcon({ slug, size = 26 }: { slug: string; size?: number }) {

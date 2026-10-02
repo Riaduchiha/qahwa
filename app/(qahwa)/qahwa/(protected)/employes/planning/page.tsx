@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -29,7 +28,7 @@ const DAYS = [
 ];
 
 const inputClass =
-  "w-full rounded-xl border border-white/10 bg-[#161616] px-3 py-2.5 text-sm text-qahwa-text focus:border-white/20 focus:outline-none focus:ring-1 focus:ring-white/10";
+  "w-full min-w-0 rounded-xl border border-white/10 bg-[#161616] px-3 py-2.5 text-sm text-qahwa-text focus:border-white/20 focus:outline-none focus:ring-1 focus:ring-white/10";
 
 export default function PlanningPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -60,7 +59,9 @@ export default function PlanningPage() {
       .select("*")
       .order("day_of_week");
 
-    if (schedData) setSchedules(schedData as Schedule[]);
+    if (schedData) {
+      setSchedules(schedData as Schedule[]);
+    }
   }, [supabase]);
 
   useEffect(() => {
@@ -121,20 +122,20 @@ export default function PlanningPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 text-qahwa-text sm:p-6">
+    <div className="min-w-0 max-w-full space-y-5 overflow-x-hidden p-3 text-qahwa-text sm:space-y-6 sm:p-6">
       {/* HEADER */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display text-2xl uppercase tracking-wide text-qahwa-text">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="truncate font-display text-xl uppercase tracking-wide text-qahwa-text sm:text-2xl">
             Planning
           </h1>
 
-          <p className="mt-1 text-xs text-qahwa-muted">
+          <p className="mt-1 text-[11px] text-qahwa-muted sm:text-xs">
             Horaires hebdomadaires de l'équipe
           </p>
         </div>
 
-        <div className="hidden h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-qahwa-panel sm:flex">
+        <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-qahwa-panel sm:flex">
           <span className="text-sm text-qahwa-muted">▦</span>
         </div>
       </div>
@@ -142,27 +143,27 @@ export default function PlanningPage() {
       {/* AJOUT HORAIRE */}
       <form
         onSubmit={handleAdd}
-        className="rounded-2xl border border-white/10 bg-qahwa-panel shadow-panel"
+        className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-qahwa-panel shadow-panel"
       >
-        <div className="p-5">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h2 className="font-display text-sm uppercase tracking-wide text-qahwa-text">
+        <div className="p-4 sm:p-5">
+          <div className="mb-4 flex min-w-0 items-center justify-between gap-3 sm:mb-5">
+            <div className="min-w-0">
+              <h2 className="truncate font-display text-sm uppercase tracking-wide text-qahwa-text">
                 Ajouter un horaire
               </h2>
 
-              <p className="mt-1 text-[11px] text-qahwa-muted">
+              <p className="mt-1 text-[10px] text-qahwa-muted sm:text-[11px]">
                 Planifier un service
               </p>
             </div>
 
-            <div className="rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[9px] font-display uppercase tracking-wider text-qahwa-muted">
+            <div className="hidden shrink-0 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[9px] font-display uppercase tracking-wider text-qahwa-muted xs:block sm:block">
               Planning
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
-            <div>
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-5 lg:items-end">
+            <div className="min-w-0">
               <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
                 Employé
               </label>
@@ -180,7 +181,7 @@ export default function PlanningPage() {
               </select>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
                 Jour
               </label>
@@ -198,7 +199,7 @@ export default function PlanningPage() {
               </select>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
                 Début
               </label>
@@ -211,7 +212,7 @@ export default function PlanningPage() {
               />
             </div>
 
-            <div>
+            <div className="min-w-0">
               <label className="mb-1.5 block text-[10px] font-display uppercase tracking-wider text-qahwa-muted">
                 Fin
               </label>
@@ -227,7 +228,7 @@ export default function PlanningPage() {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-xs font-display uppercase text-qahwa-text transition hover:border-qahwa-orange/40 hover:bg-white/[0.09] hover:text-qahwa-orange disabled:opacity-50"
+              className="min-h-11 w-full rounded-xl border border-white/10 bg-white/[0.06] px-4 py-2.5 text-xs font-display uppercase text-qahwa-text transition hover:border-qahwa-orange/40 hover:bg-white/[0.09] hover:text-qahwa-orange disabled:opacity-50"
             >
               {saving ? "Ajout..." : "+ Ajouter"}
             </button>
@@ -236,7 +237,7 @@ export default function PlanningPage() {
       </form>
 
       {/* JOURS */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
         {DAYS.map((day, i) => {
           const daySchedules = schedules.filter(
             (s) => s.day_of_week === i
@@ -245,29 +246,31 @@ export default function PlanningPage() {
           return (
             <div
               key={i}
-              className="rounded-2xl border border-white/10 bg-qahwa-panel shadow-panel transition duration-300 hover:border-white/20 hover:shadow-xl"
+              className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-qahwa-panel shadow-panel transition duration-300 hover:border-white/20 hover:shadow-xl"
             >
-              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-                <div>
-                  <h2 className="font-display text-sm uppercase tracking-wide text-qahwa-text">
+              {/* JOUR */}
+              <div className="flex min-w-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3.5 sm:px-5 sm:py-4">
+                <div className="min-w-0">
+                  <h2 className="truncate font-display text-sm uppercase tracking-wide text-qahwa-text">
                     {day}
                   </h2>
 
-                  <p className="mt-1 text-[10px] uppercase tracking-wider text-qahwa-muted">
+                  <p className="mt-1 text-[9px] uppercase tracking-wider text-qahwa-muted sm:text-[10px]">
                     {daySchedules.length} personne
                     {daySchedules.length > 1 ? "s" : ""}
                   </p>
                 </div>
 
-                <span className="text-[10px] font-display text-qahwa-muted">
+                <span className="shrink-0 text-[10px] font-display text-qahwa-muted">
                   {String(i + 1).padStart(2, "0")}
                 </span>
               </div>
 
-              <div className="p-4">
+              {/* HORAIRES */}
+              <div className="min-w-0 p-3 sm:p-4">
                 {daySchedules.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-6 text-center">
-                    <p className="text-xs text-qahwa-muted">
+                  <div className="rounded-xl border border-dashed border-white/10 bg-black/10 px-3 py-5 text-center sm:px-4 sm:py-6">
+                    <p className="text-[11px] text-qahwa-muted sm:text-xs">
                       Personne prévu.
                     </p>
                   </div>
@@ -276,16 +279,16 @@ export default function PlanningPage() {
                     {daySchedules.map((s) => (
                       <li
                         key={s.id}
-                        className="group rounded-xl border border-white/10 bg-[#161616] p-3 transition hover:border-white/20"
+                        className="min-w-0 rounded-xl border border-white/10 bg-[#161616] p-3 transition hover:border-white/20"
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-display uppercase text-qahwa-text">
+                        <div className="flex min-w-0 items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="break-words text-xs font-display uppercase leading-tight text-qahwa-text">
                               {employeeName(s.employee_id)}
                             </p>
 
                             <div className="mt-2 flex items-center gap-2">
-                              <span className="text-[11px] text-qahwa-muted">
+                              <span className="rounded-md bg-white/[0.04] px-2 py-1 text-[11px] text-qahwa-muted">
                                 {s.start_time.slice(0, 5)}
                               </span>
 
@@ -293,7 +296,7 @@ export default function PlanningPage() {
                                 —
                               </span>
 
-                              <span className="text-[11px] text-qahwa-muted">
+                              <span className="rounded-md bg-white/[0.04] px-2 py-1 text-[11px] text-qahwa-muted">
                                 {s.end_time.slice(0, 5)}
                               </span>
                             </div>
@@ -302,7 +305,7 @@ export default function PlanningPage() {
                           <button
                             type="button"
                             onClick={() => handleDelete(s.id)}
-                            className="shrink-0 rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] font-display uppercase text-qahwa-muted opacity-0 transition hover:border-qahwa-rouge/30 hover:text-qahwa-rouge group-hover:opacity-100"
+                            className="min-h-9 shrink-0 rounded-lg border border-white/10 px-2.5 py-1.5 text-[9px] font-display uppercase text-qahwa-muted transition hover:border-qahwa-rouge/30 hover:text-qahwa-rouge sm:opacity-0 sm:group-hover:opacity-100"
                           >
                             Suppr.
                           </button>
@@ -319,4 +322,3 @@ export default function PlanningPage() {
     </div>
   );
 }
-
