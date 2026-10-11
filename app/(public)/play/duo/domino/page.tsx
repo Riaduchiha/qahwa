@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -9,7 +10,7 @@ function genCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
 
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 4; i += 1) {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
 
@@ -19,9 +20,10 @@ function genCode() {
 export default function DominoDuoLobbyPage() {
   const router = useRouter();
 
-  const [mode, setMode] = useState<"choix" | "creer" | "rejoindre">(
-    "choix"
-  );
+  const [mode, setMode] = useState<
+    "choix" | "creer" | "rejoindre"
+  >("choix");
+
   const [nickname, setNickname] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,107 +31,234 @@ export default function DominoDuoLobbyPage() {
 
   async function createGame() {
     if (!nickname.trim()) {
-      setError("Entre ton prenom.");
+      setError("Entre ton prénom.");
       return;
     }
 
     setLoading(true);
     setError("");
 
-    const supabase = createSupabaseBrowserClient() as any;
-    const code = genCode();
+    try {
+      const supabase =
+        createSupabaseBrowserClient() as any;
 
-    const { data: game, error: gameError } = await supabase
-      .from("duo_domino_games")
-      .insert({
-        code,
-      })
-      .select()
-      .single();
+      const code = genCode();
 
-    if (gameError || !game) {
-      console.error(gameError);
-      setError("Erreur lors de la creation de la partie.");
+      const {
+        data: game,
+        error: gameError,
+      } = await supabase
+        .from("duo_domino_games")
+        .insert({
+          code,
+          status: "waiting",
+          current_player: 1,
+          board: [],
+          boneyard: [],
+          winner: null,
+        })
+        .select()
+        .single();
+
+      if (gameError || !game) {
+        console.error(gameError);
+
+        setError(
+          "Erreur lors de la création de la partie.",
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      const {
+        error: playerError,
+      } = await supabase
+        .from("duo_domino_players")
+        .insert({
+          game_id: game.id,
+          player_number: 1,
+          nickname: nickname.trim(),
+          hand: [],
+          score: 0,
+        });
+
+      if (playerError) {
+        console.error(playerError);
+
+        setError(
+          "Erreur lors de la création du joueur.",
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      sessionStorage.setItem(
+        `qahwa-domino-${code}`,
+        JSON.stringify({
+          gameId: game.id,
+          playerNumber: 1,
+        }),
+      );
+
+      router.push(
+        `/play/duo/domino/${code}`,
+      );
+    } catch (err) {
+      console.error(err);
+
+      setError(
+        "Une erreur est survenue.",
+      );
+
       setLoading(false);
-      return;
     }
-
-    await supabase.from("duo_domino_players").insert({
-      game_id: game.id,
-      player_number: 1,
-      nickname: nickname.trim(),
-    });
-
-    sessionStorage.setItem(
-      `qahwa-domino-${code}`,
-      JSON.stringify({
-        gameId: game.id,
-        playerNumber: 1,
-      })
-    );
-
-    router.push(`/play/duo/domino/${code}`);
   }
 
   async function joinGame() {
-    if (!nickname.trim() || joinCode.trim().length < 4) {
-      setError("Entre ton prenom et le code.");
+    if (
+      !nickname.trim() ||
+      joinCode.trim().length < 4
+    ) {
+      setError(
+        "Entre ton prénom et le code.",
+      );
       return;
     }
 
     setLoading(true);
     setError("");
 
-    const supabase = createSupabaseBrowserClient() as any;
-    const code = joinCode.trim().toUpperCase();
+    try {
+      const supabase =
+        createSupabaseBrowserClient() as any;
 
-    const { data: game } = await supabase
-      .from("duo_domino_games")
-      .select("*")
-      .eq("code", code)
-      .maybeSingle();
+      const code =
+        joinCode.trim().toUpperCase();
 
-    if (!game) {
-      setError("Code introuvable.");
+      const {
+        data: game,
+        error: gameError,
+      } = await supabase
+        .from("duo_domino_games")
+        .select("*")
+        .eq("code", code)
+        .maybeSingle();
+
+      if (gameError) {
+        console.error(gameError);
+
+        setError(
+          "Impossible de trouver cette partie.",
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      if (!game) {
+        setError("Code introuvable.");
+        setLoading(false);
+        return;
+      }
+
+      const {
+        data: existingPlayer2,
+        error: playerCheckError,
+      } = await supabase
+        .from("duo_domino_players")
+        .select("id")
+        .eq("game_id", game.id)
+        .eq("player_number", 2)
+        .maybeSingle();
+
+      if (playerCheckError) {
+        console.error(
+          playerCheckError,
+        );
+
+        setError(
+          "Impossible de vérifier la partie.",
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      if (existingPlayer2) {
+        setError(
+          "Cette partie est déjà complète.",
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      const {
+        data: player2,
+        error: insertPlayerError,
+      } = await supabase
+        .from("duo_domino_players")
+        .insert({
+          game_id: game.id,
+          player_number: 2,
+          nickname: nickname.trim(),
+          hand: [],
+          score: 0,
+        })
+        .select()
+        .single();
+
+      if (
+        insertPlayerError ||
+        !player2
+      ) {
+        console.error(
+          insertPlayerError,
+        );
+
+        setError(
+          "Impossible de rejoindre la partie.",
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      await supabase
+        .from("duo_domino_games")
+        .update({
+          status: "waiting",
+        })
+        .eq("id", game.id);
+
+      /*
+       * IMPORTANT :
+       * On sauvegarde un OBJET JSON.
+       * La page de jeu devra lire playerNumber
+       * dans cet objet.
+       */
+      sessionStorage.setItem(
+        `qahwa-domino-${code}`,
+        JSON.stringify({
+          gameId: game.id,
+          playerNumber: 2,
+        }),
+      );
+
+      router.push(
+        `/play/duo/domino/${code}`,
+      );
+    } catch (err) {
+      console.error(err);
+
+      setError(
+        "Une erreur est survenue.",
+      );
+
       setLoading(false);
-      return;
     }
-
-    const { data: existingPlayer2 } = await supabase
-      .from("duo_domino_players")
-      .select("id")
-      .eq("game_id", game.id)
-      .eq("player_number", 2)
-      .maybeSingle();
-
-    if (existingPlayer2) {
-      setError("Cette partie est deja complete.");
-      setLoading(false);
-      return;
-    }
-
-    await supabase.from("duo_domino_players").insert({
-      game_id: game.id,
-      player_number: 2,
-      nickname: nickname.trim(),
-    });
-
-    await supabase
-      .from("duo_domino_games")
-      .update({
-        status:  "waiting",
-      })
-      .eq("id", game.id);
-
-    sessionStorage.setItem(
-      `qahwa-domino-${code}`,
-      JSON.stringify({
-        gameId: game.id,
-        playerNumber: 2,
-      })
-    );
-
-    router.push(`/play/duo/domino/${code}`);
   }
 
   return (
@@ -150,20 +279,27 @@ export default function DominoDuoLobbyPage() {
       </h1>
 
       <p className="max-w-xs text-sm text-qahwa-blanc/60">
-        Affronte ton binome a distance. Deux telephones, une seule partie.
+        Affronte ton binôme à distance.
+        Deux téléphones, une seule partie.
       </p>
 
       {mode === "choix" && (
         <div className="mt-4 flex w-full max-w-xs flex-col gap-3">
           <button
-            onClick={() => setMode("creer")}
+            type="button"
+            onClick={() =>
+              setMode("creer")
+            }
             className="qahwa-cta rounded-full border-2 border-qahwa-noir bg-qahwa-orange py-3 font-display uppercase text-qahwa-noir shadow-brutal"
           >
-            Creer une partie
+            Créer une partie
           </button>
 
           <button
-            onClick={() => setMode("rejoindre")}
+            type="button"
+            onClick={() =>
+              setMode("rejoindre")
+            }
             className="rounded-full border-2 border-qahwa-blanc/20 bg-white/5 py-3 font-display uppercase text-qahwa-blanc"
           >
             Rejoindre avec un code
@@ -175,8 +311,10 @@ export default function DominoDuoLobbyPage() {
         <div className="mt-4 flex w-full max-w-xs flex-col gap-3">
           <input
             value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            placeholder="Ton prenom"
+            onChange={(e) =>
+              setNickname(e.target.value)
+            }
+            placeholder="Ton prénom"
             className="rounded-lg border-2 border-qahwa-blanc/20 bg-white/5 px-3 py-2 text-sm text-qahwa-blanc placeholder:text-qahwa-blanc/40"
           />
 
@@ -187,11 +325,14 @@ export default function DominoDuoLobbyPage() {
           )}
 
           <button
+            type="button"
             onClick={createGame}
             disabled={loading}
             className="qahwa-cta rounded-full border-2 border-qahwa-noir bg-qahwa-orange py-3 font-display uppercase text-qahwa-noir shadow-brutal disabled:opacity-60"
           >
-            {loading ? "Creation..." : "Creer"}
+            {loading
+              ? "Création..."
+              : "Créer"}
           </button>
         </div>
       )}
@@ -200,15 +341,19 @@ export default function DominoDuoLobbyPage() {
         <div className="mt-4 flex w-full max-w-xs flex-col gap-3">
           <input
             value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            placeholder="Ton prenom"
+            onChange={(e) =>
+              setNickname(e.target.value)
+            }
+            placeholder="Ton prénom"
             className="rounded-lg border-2 border-qahwa-blanc/20 bg-white/5 px-3 py-2 text-sm text-qahwa-blanc placeholder:text-qahwa-blanc/40"
           />
 
           <input
             value={joinCode}
             onChange={(e) =>
-              setJoinCode(e.target.value.toUpperCase())
+              setJoinCode(
+                e.target.value.toUpperCase(),
+              )
             }
             placeholder="Code (ex: A3F9)"
             maxLength={4}
@@ -222,14 +367,18 @@ export default function DominoDuoLobbyPage() {
           )}
 
           <button
+            type="button"
             onClick={joinGame}
             disabled={loading}
             className="qahwa-cta rounded-full border-2 border-qahwa-noir bg-qahwa-orange py-3 font-display uppercase text-qahwa-noir shadow-brutal disabled:opacity-60"
           >
-            {loading ? "Connexion..." : "Rejoindre"}
+            {loading
+              ? "Connexion..."
+              : "Rejoindre"}
           </button>
         </div>
       )}
     </section>
   );
 }
+
