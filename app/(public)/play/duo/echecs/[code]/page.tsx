@@ -242,41 +242,85 @@ export default function EchecsDuoGamePage() {
       <div className="mx-auto mt-6 max-w-md text-center">
         <p className={`mt-3 font-display text-sm ${statusClass}`}>{statusText}</p>
 
-        <div className="mx-auto mt-3 grid aspect-square w-full max-w-[352px] grid-cols-8 grid-rows-8 overflow-hidden rounded-lg border-4 border-black shadow-2xl">
-          {displayBoard.map((row, rIdx) =>
-            row.map((sq, cIdx) => {
-              const realRow = role === "b" ? 7 - rIdx : rIdx;
-              const realCol = role === "b" ? 7 - cIdx : cIdx;
-              const file = FILES[realCol] ?? "a";
-              const name = file + (8 - realRow);
-              const isLight = (realRow + realCol) % 2 === 0;
-              const isSelected = selected === name;
-              const isTarget = legalTargets.includes(name);
-              const isLast = lastMove !== null && (name === lastMove.from || name === lastMove.to);
-              return (
-                <button
-                  key={name}
-                  onClick={() => onSquareClick(name)}
-                  className={`relative flex items-center justify-center text-2xl sm:text-3xl ${
-                    isLight ? "bg-[#2E2925]" : "bg-[#151210]"
-                  } ${isSelected ? "outline outline-[3px] outline-qahwa-orange -outline-offset-[3px]" : ""} ${
-                    isLast ? "bg-qahwa-orange/10" : ""
-                  }`}
-                >
-                  {sq ? (
-                    <span className={sq.color === "w" ? "text-[#FDFBF8] drop-shadow" : "text-qahwa-orange drop-shadow"}>
-                      {PIECE_SYMBOLS[sq.type]}
-                    </span>
-                  ) : null}
-                  {isTarget && !sq && <span className="absolute h-2.5 w-2.5 rounded-full bg-qahwa-orange/70" />}
-                  {isTarget && sq ? (
-                    <span className="absolute inset-0 outline outline-[3px] outline-qahwa-orange/70 -outline-offset-[3px]" />
-                  ) : null}
-                </button>
-              );
-            })
+<div
+  className="mx-auto mt-3 grid aspect-square w-full max-w-[352px] grid-cols-8 grid-rows-8 overflow-hidden rounded-lg border-4 border-[#FF6B00]/50 bg-[#B58863] shadow-[0_12px_36px_rgba(0,0,0,0.45)]"
+  style={{
+    colorScheme: "light",
+    WebkitAppearance: "none",
+    appearance: "none",
+  }}
+  aria-label="Échiquier"
+>
+  {displayBoard.map((row, rIdx) =>
+    row.map((sq, cIdx) => {
+      const realRow = role === "b" ? 7 - rIdx : rIdx;
+      const realCol = role === "b" ? 7 - cIdx : cIdx;
+      const file = FILES[realCol] ?? "a";
+      const name = file + (8 - realRow);
+      const isLight = (realRow + realCol) % 2 === 0;
+      const isSelected = selected === name;
+      const isTarget = legalTargets.includes(name);
+      const isLast =
+        lastMove !== null &&
+        (name === lastMove.from || name === lastMove.to);
+
+      return (
+        <button
+          key={name}
+          type="button"
+          aria-label={`Case ${name}`}
+          aria-pressed={isSelected}
+          onClick={() => onSquareClick(name)}
+          style={{
+            backgroundColor: isLight ? "#F0D9B5" : "#B58863",
+            colorScheme: "light",
+            WebkitAppearance: "none",
+            appearance: "none",
+            forcedColorAdjust: "none",
+          }}
+          className={`relative flex h-full min-h-0 w-full min-w-0 items-center justify-center overflow-hidden border-0 p-0 text-2xl sm:text-3xl ${
+            isSelected
+              ? "z-10 outline outline-[3px] outline-[#FF6B00] -outline-offset-[3px]"
+              : ""
+          }`}
+        >
+          {isLast && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 bg-[#FF6B00]/25"
+            />
           )}
-        </div>
+
+          {sq && (
+            <span
+              className="relative z-[1] leading-none"
+              style={{
+                color: sq.color === "w" ? "#FFFDF8" : "#FF6B00",
+                textShadow:
+                  sq.color === "w"
+                    ? "0 1px 2px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.85)"
+                    : "0 1px 2px rgba(0,0,0,0.8), 0 0 1px #3B1800",
+                WebkitTextStroke:
+                  sq.color === "w" ? "0.5px #4A3A2A" : "0.35px #3B1800",
+              }}
+            >
+              {PIECE_SYMBOLS[sq.type]}
+            </span>
+          )}
+
+          {isTarget && !sq && (
+            <span className="pointer-events-none absolute z-[2] h-2.5 w-2.5 rounded-full bg-[#FF6B00] shadow-[0_0_0_3px_rgba(255,255,255,0.65)]" />
+          )}
+
+          {isTarget && sq && (
+            <span className="pointer-events-none absolute inset-0 z-[2] outline outline-[3px] outline-[#FF6B00] -outline-offset-[3px]" />
+          )}
+        </button>
+      );
+    })
+  )}
+</div>
+
 
         <p className="mt-3 text-xs text-qahwa-blanc/50">
           Tu joues : {role === "w" ? "Blancs" : role === "b" ? "Noirs" : "Spectateur"}

@@ -4,114 +4,274 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
-const GRID_SIZE = 18;
-const CELL_SIZE = 20;
-const INITIAL_SNAKE = [
-  { x: 8, y: 9 },
-  { x: 7, y: 9 },
-  { x: 6, y: 9 },
-];
+const GRID_SIZE = 20;
+const CELL_SIZE = 18;
+const BOARD_SIZE = GRID_SIZE * CELL_SIZE;
 
 type Point = { x: number; y: number };
 type Direction = "up" | "down" | "left" | "right";
 
+const INITIAL_SNAKE: Point[] = [
+  { x: 8, y: 10 },
+  { x: 7, y: 10 },
+  { x: 6, y: 10 },
+];
+
 function randomFood(snake: Point[]): Point {
-  let food: Point;
-  do {
-    food = {
-      x: Math.floor(Math.random() * GRID_SIZE),
-      y: Math.floor(Math.random() * GRID_SIZE),
-    };
-  } while (snake.some((s) => s.x === food.x && s.y === food.y));
-  return food;
+  const freeCells: Point[] = [];
+
+  for (let y = 0; y < GRID_SIZE; y++) {
+    for (let x = 0; x < GRID_SIZE; x++) {
+      if (!snake.some((part) => part.x === x && part.y === y)) {
+        freeCells.push({ x, y });
+      }
+    }
+  }
+
+  return freeCells[Math.floor(Math.random() * freeCells.length)] ?? {
+    x: 0,
+    y: 0,
+  };
 }
 
 export default function SnakePage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const snakeRef = useRef<Point[]>(INITIAL_SNAKE);
+  const snakeRef = useRef<Point[]>(INITIAL_SNAKE.map((p) => ({ ...p })));
   const dirRef = useRef<Direction>("right");
   const nextDirRef = useRef<Direction>("right");
   const foodRef = useRef<Point>(randomFood(INITIAL_SNAKE));
+  const scoreRef = useRef(0);
+  const lastTurnRef = useRef<Direction>("right");
+
   const [score, setScore] = useState(0);
   const [best, setBest] = useState(0);
-  const [gameOver, setGameOver] = useState(false);
   const [running, setRunning] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [gameOver, setGameOver] = useState(false);
+  const [won, setWon] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = Number(
+        window.localStorage.getItem("qahwa-snake-best") ?? 0
+      );
+      if (Number.isFinite(saved) && saved >= 0) setBest(saved);
+    } catch {
+      // Le jeu reste utilisable si le stockage est indisponible.
+    }
+  }, []);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
 
-    ctx.fillStyle = "#111111";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, BOARD_SIZE, BOARD_SIZE);
+    ctx.fillStyle = "#101010";
+    ctx.fillRect(0, 0, BOARD_SIZE, BOARD_SIZE);
 
-    ctx.fillStyle = "#f97316";
-    snakeRef.current.forEach((seg, i) => {
-      ctx.globalAlpha = i === 0 ? 1 : 0.75;
-      ctx.fillRect(
-        seg.x * CELL_SIZE + 1,
-        seg.y * CELL_SIZE + 1,
-        CELL_SIZE - 2,
-        CELL_SIZE - 2
-      );
-    });
-    ctx.globalAlpha = 1;
+    ctx.strokeStyle = "rgba(255,255,255,0.045)";
+    ctx.lineWidth = 0.5;
 
-    ctx.fillStyle = "#ffffff";
+    for (let i = 0; i <= GRID_SIZE; i++) {
+      const pos = i * CELL_SIZE;
+
+      ctx.beginPath();
+      ctx.moveTo(pos, 0);
+      ctx.lineTo(pos, BOARD_SIZE);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(0, pos);
+      ctx.lineTo(BOARD_SIZE, pos);
+      ctx.stroke();
+    }
+
+    const food = foodRef.current;
+    const foodX = food.x * CELL_SIZE + CELL_SIZE / 2;
+    const foodY = food.y * CELL_SIZE + CELL_SIZE / 2;
+
+    ctx.save();
+    ctx.shadowColor = "#FF6B00";
+    ctx.shadowBlur = 13;
+    ctx.fillStyle = "#FF6B00";
     ctx.beginPath();
-    ctx.arc(
-      foodRef.current.x * CELL_SIZE + CELL_SIZE / 2,
-      foodRef.current.y * CELL_SIZE + CELL_SIZE / 2,
-      CELL_SIZE / 2.6,
-      0,
-      Math.PI * 2
-    );
+    ctx.arc(foodX, foodY, CELL_SIZE * 0.29, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+
+    const snake = snakeRef.current;
+
+    snake.forEach((part, index) => {
+      const inset = index === 0 ? 1.5 : 2.2;
+      const x = part.x * CELL_SIZE + inset;
+      const y = part.y * CELL_SIZE + inset;
+      const size = CELL_SIZE - inset * 2;
+
+      ctx.save();
+      ctx.fillStyle =
+        index === 0
+          ? "#FF8A32"
+          : `rgba(255,107,0,${Math.max(0.4, 0.95 - index * 0.025)})`;
+
+      ctx.shadowColor =
+        index === 0 ? "rgba(255,107,0,0.45)" : "transparent";
+      ctx.shadowBlur = index === 0 ? 9 : 0;
+      ctx.beginPath();
+      ctx.roundRect(x, y, size, size, index === 0 ? 5 : 4);
+      ctx.fill();
+      ctx.restore();
+    });
+
+    const head = snake[0];
+
+    if (head) {
+      const cx = head.x * CELL_SIZE + CELL_SIZE / 2;
+      const cy = head.y * CELL_SIZE + CELL_SIZE / 2;
+      let eyes: { x: number; y: number }[] = [];
+
+      if (dirRef.current === "right") {
+        eyes = [{ x: 4, y: -3 }, { x: 4, y: 3 }];
+      } else if (dirRef.current === "left") {
+        eyes = [{ x: -4, y: -3 }, { x: -4, y: 3 }];
+      } else if (dirRef.current === "up") {
+        eyes = [{ x: -3, y: -4 }, { x: 3, y: -4 }];
+      } else {
+        eyes = [{ x: -3, y: 4 }, { x: 3, y: 4 }];
+      }
+
+      ctx.fillStyle = "#151515";
+      eyes.forEach((eye) => {
+        ctx.beginPath();
+        ctx.arc(cx + eye.x, cy + eye.y, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
   }, []);
 
   const resetGame = useCallback(() => {
-    snakeRef.current = INITIAL_SNAKE.map((p) => ({ ...p }));
+    const freshSnake = INITIAL_SNAKE.map((p) => ({ ...p }));
+
+    snakeRef.current = freshSnake;
     dirRef.current = "right";
     nextDirRef.current = "right";
-    foodRef.current = randomFood(snakeRef.current);
+    lastTurnRef.current = "right";
+    scoreRef.current = 0;
+    foodRef.current = randomFood(freshSnake);
+
     setScore(0);
     setGameOver(false);
+    setWon(false);
+    setPaused(false);
     setRunning(true);
-    draw();
-  }, [draw]);
+  }, []);
+
+  const changeDirection = useCallback((dir: Direction) => {
+    const opposite: Record<Direction, Direction> = {
+      up: "down",
+      down: "up",
+      left: "right",
+      right: "left",
+    };
+
+    if (dir === opposite[dirRef.current]) return;
+    if (dir === opposite[lastTurnRef.current]) return;
+
+    nextDirRef.current = dir;
+  }, []);
+
+  const togglePause = useCallback(() => {
+    if (!running || gameOver || won) return;
+    setPaused((value) => !value);
+  }, [running, gameOver, won]);
 
   useEffect(() => {
-    if (!running || gameOver) return;
+    if (!running || paused || gameOver || won) return;
 
-       const interval = setInterval(() => {
+    const tick = () => {
       dirRef.current = nextDirRef.current;
+      lastTurnRef.current = dirRef.current;
+
       const currentHead = snakeRef.current[0];
       if (!currentHead) return;
-      const head: Point = { x: currentHead.x, y: currentHead.y };
 
-      if (dirRef.current === "up") head.y -= 1;
-      if (dirRef.current === "down") head.y += 1;
-      if (dirRef.current === "left") head.x -= 1;
-      if (dirRef.current === "right") head.x += 1;
+      const head: Point = { ...currentHead };
+
+      if (dirRef.current === "up") head.y--;
+      if (dirRef.current === "down") head.y++;
+      if (dirRef.current === "left") head.x--;
+      if (dirRef.current === "right") head.x++;
 
       const hitWall =
-        head.x < 0 || head.y < 0 || head.x >= GRID_SIZE || head.y >= GRID_SIZE;
-      const hitSelf = snakeRef.current.some(
-        (s) => s.x === head.x && s.y === head.y
+        head.x < 0 ||
+        head.y < 0 ||
+        head.x >= GRID_SIZE ||
+        head.y >= GRID_SIZE;
+
+      const eating =
+        head.x === foodRef.current.x && head.y === foodRef.current.y;
+
+      const bodyToCheck = eating
+        ? snakeRef.current
+        : snakeRef.current.slice(0, -1);
+
+      const hitSelf = bodyToCheck.some(
+        (part) => part.x === head.x && part.y === head.y
       );
 
       if (hitWall || hitSelf) {
         setGameOver(true);
         setRunning(false);
-        setBest((b) => Math.max(b, score));
+
+        const finalScore = scoreRef.current;
+
+        setBest((previous) => {
+          const nextBest = Math.max(previous, finalScore);
+
+          try {
+            window.localStorage.setItem(
+              "qahwa-snake-best",
+              String(nextBest)
+            );
+          } catch {
+            // Le record de la session reste affiché.
+          }
+
+          return nextBest;
+        });
+
         return;
       }
 
       const newSnake = [head, ...snakeRef.current];
 
-      if (head.x === foodRef.current.x && head.y === foodRef.current.y) {
-        setScore((s) => s + 1);
+      if (eating) {
+        scoreRef.current += 1;
+        setScore(scoreRef.current);
+
+        if (newSnake.length === GRID_SIZE * GRID_SIZE) {
+          snakeRef.current = newSnake;
+          setWon(true);
+          setRunning(false);
+
+          setBest((previous) => {
+            const nextBest = Math.max(previous, scoreRef.current);
+
+            try {
+              window.localStorage.setItem(
+                "qahwa-snake-best",
+                String(nextBest)
+              );
+            } catch {
+              // Le jeu reste jouable.
+            }
+
+            return nextBest;
+          });
+
+          return;
+        }
+
         foodRef.current = randomFood(newSnake);
       } else {
         newSnake.pop();
@@ -119,121 +279,215 @@ export default function SnakePage() {
 
       snakeRef.current = newSnake;
       draw();
-    }, 130);
+    };
 
-    return () => clearInterval(interval);
-  }, [running, gameOver, draw, score]);
+    const speed = Math.max(65, 135 - scoreRef.current * 3);
+    const interval = window.setInterval(tick, speed);
 
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "ArrowUp" && dirRef.current !== "down")
-        nextDirRef.current = "up";
-      if (e.key === "ArrowDown" && dirRef.current !== "up")
-        nextDirRef.current = "down";
-      if (e.key === "ArrowLeft" && dirRef.current !== "right")
-        nextDirRef.current = "left";
-      if (e.key === "ArrowRight" && dirRef.current !== "left")
-        nextDirRef.current = "right";
-    }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, []);
+    return () => window.clearInterval(interval);
+  }, [running, paused, gameOver, won, draw]);
 
   useEffect(() => {
     draw();
-  }, [draw]);
+  }, [draw, score, running, paused, gameOver, won]);
 
-  function press(dir: Direction) {
-    const opposite: Record<Direction, Direction> = {
-      up: "down",
-      down: "up",
-      left: "right",
-      right: "left",
-    };
-    if (dirRef.current !== opposite[dir]) {
-      nextDirRef.current = dir;
+  useEffect(() => {
+    function handleKey(event: KeyboardEvent) {
+      const key = event.key.toLowerCase();
+
+      const directions: Record<string, Direction> = {
+        arrowup: "up",
+        w: "up",
+        z: "up",
+        arrowdown: "down",
+        s: "down",
+        arrowleft: "left",
+        a: "left",
+        q: "left",
+        arrowright: "right",
+        d: "right",
+      };
+
+      const direction = directions[key];
+
+      if (direction) {
+        event.preventDefault();
+        changeDirection(direction);
+      } else if (key === " " || key === "escape") {
+        event.preventDefault();
+        togglePause();
+      }
     }
-  }
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [changeDirection, togglePause]);
+
+  const directionButton = (
+    direction: Direction,
+    label: string,
+    symbol: string
+  ) => (
+    <button
+      key={direction}
+      type="button"
+      aria-label={label}
+      onClick={() => changeDirection(direction)}
+      className="flex h-14 w-14 touch-none select-none items-center justify-center rounded-2xl border-2 border-qahwa-orange/30 bg-[#1b1b1b] text-2xl font-bold text-qahwa-orange shadow-[0_4px_0_rgba(255,107,0,0.12)] transition active:translate-y-1 active:border-qahwa-orange active:bg-qahwa-orange active:text-qahwa-noir active:shadow-none sm:h-12 sm:w-12"
+    >
+      {symbol}
+    </button>
+  );
 
   return (
-    <section className="min-h-screen bg-qahwa-noir px-5 py-10 text-center">
-      <Link
-        href="/play/solo"
-        className="font-display text-xs uppercase text-qahwa-blanc/60 hover:text-qahwa-orange"
-      >
-        &lsaquo; Retour
-      </Link>
-      <p className="mt-4 font-display text-xs uppercase tracking-[0.3em] text-qahwa-orange">
-        Qahwa Play
-      </p>
-      <h1 className="font-display text-3xl uppercase text-qahwa-blanc">
-        Snake
-      </h1>
-
-      <div className="mt-4 flex justify-center gap-6 text-sm text-qahwa-blanc/70">
-        <span>Score : {score}</span>
-        <span>Meilleur : {best}</span>
-      </div>
-
-      <div className="relative mx-auto mt-6 w-fit">
-        <canvas
-          ref={canvasRef}
-          width={GRID_SIZE * CELL_SIZE}
-          height={GRID_SIZE * CELL_SIZE}
-          className="rounded-xl border-2 border-qahwa-blanc/15 bg-qahwa-noir shadow-brutal-sm"
-        />
-
-        {!running && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-xl bg-black/70">
-            {gameOver && (
-              <p className="font-display text-xl uppercase text-qahwa-blanc">
-                Perdu ! Score : {score}
-              </p>
-            )}
-            <button
-              onClick={resetGame}
-              className="qahwa-cta rounded-full border-2 border-qahwa-noir bg-qahwa-orange px-6 py-2.5 font-display text-sm uppercase text-qahwa-noir shadow-brutal"
-            >
-              {gameOver ? "Rejouer" : "Jouer"}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {running && (
-        <div className="mx-auto mt-6 grid w-40 grid-cols-3 gap-2 sm:hidden">
-          <div />
-          <button
-            onClick={() => press("up")}
-            className="rounded-lg border-2 border-qahwa-blanc/20 bg-white/5 py-3 text-qahwa-blanc active:bg-white/15"
+    <main className="fixed inset-0 overflow-y-auto overscroll-none bg-qahwa-noir px-4 py-5 text-qahwa-blanc sm:px-6 sm:py-6">
+      <div className="mx-auto max-w-2xl">
+        <div className="flex items-center justify-between">
+          <Link
+            href="/play/solo"
+            className="text-xs font-semibold uppercase tracking-wider text-white/50 transition hover:text-qahwa-orange"
           >
-            ↑
-          </button>
-          <div />
-          <button
-            onClick={() => press("left")}
-            className="rounded-lg border-2 border-qahwa-blanc/20 bg-white/5 py-3 text-qahwa-blanc active:bg-white/15"
-          >
-            ←
-          </button>
-          <button
-            onClick={() => press("down")}
-            className="rounded-lg border-2 border-qahwa-blanc/20 bg-white/5 py-3 text-qahwa-blanc active:bg-white/15"
-          >
-            ↓
-          </button>
-          <button
-            onClick={() => press("right")}
-            className="rounded-lg border-2 border-qahwa-blanc/20 bg-white/5 py-3 text-qahwa-blanc active:bg-white/15"
-          >
-            →
-          </button>
+            ← Retour
+          </Link>
+
+          <span className="rounded-full border border-qahwa-orange/25 bg-qahwa-orange/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-qahwa-orange">
+            Qahwa Play
+          </span>
         </div>
-      )}
 
-      <p className="mt-4 hidden text-xs text-qahwa-blanc/40 sm:block">
-        Utilise les fleches du clavier
-      </p>
-    </section>
+        <header className="mt-5 text-center sm:mt-7">
+          <p className="text-[10px] font-bold uppercase tracking-[0.4em] text-qahwa-orange">
+            Réflexes · Précision · Vitesse
+          </p>
+
+          <h1 className="mt-2 font-display text-4xl uppercase sm:text-5xl">
+            SNA<span className="text-qahwa-orange">KE</span>
+          </h1>
+
+          <p className="mt-2 text-sm text-white/45">
+            Mange, grandis et bats ton record.
+          </p>
+        </header>
+
+        <section
+          aria-label="Statistiques de la partie"
+          className="mx-auto mt-5 grid max-w-md grid-cols-2 gap-3"
+        >
+          <div className="rounded-2xl border border-white/[0.08] bg-[#151515] px-4 py-3 text-left">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">
+              Score
+            </p>
+            <p className="mt-1 font-display text-2xl tabular-nums">
+              {String(score).padStart(2, "0")}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-qahwa-orange/20 bg-qahwa-orange/[0.06] px-4 py-3 text-left">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-qahwa-orange/70">
+              Meilleur score
+            </p>
+            <p className="mt-1 font-display text-2xl tabular-nums text-qahwa-orange">
+              {String(best).padStart(2, "0")}
+            </p>
+          </div>
+        </section>
+
+        <div className="mx-auto mt-4 w-full max-w-[390px] rounded-[22px] border border-qahwa-orange/40 bg-[#0c0c0c] p-2 shadow-[0_0_35px_rgba(255,107,0,0.08)] sm:p-3">
+          <div className="relative overflow-hidden rounded-xl">
+            <canvas
+              ref={canvasRef}
+              width={BOARD_SIZE}
+              height={BOARD_SIZE}
+              className="block h-auto w-full"
+              aria-label="Plateau du jeu Snake"
+            />
+
+            {(!running || paused) && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 px-5 text-center backdrop-blur-[2px]">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-qahwa-orange/30 bg-qahwa-orange/10 text-2xl text-qahwa-orange">
+                  {won ? "★" : gameOver ? "↻" : paused ? "Ⅱ" : "▶"}
+                </div>
+
+                <h2 className="font-display text-2xl uppercase">
+                  {won
+                    ? "Parfait !"
+                    : gameOver
+                      ? "Game over"
+                      : paused
+                        ? "Pause"
+                        : "Prêt à jouer ?"}
+                </h2>
+
+                <p className="mt-2 max-w-xs text-xs leading-5 text-white/55">
+                  {won
+                    ? "Tu as rempli tout le plateau. Impressionnant !"
+                    : gameOver
+                      ? `Ton score : ${score}. Une nouvelle partie ?`
+                      : paused
+                        ? "Reprends la partie quand tu es prêt."
+                        : "Attrape les points orange et évite les murs."}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={
+                    paused && !gameOver && !won
+                      ? togglePause
+                      : resetGame
+                  }
+                  className="mt-5 rounded-full bg-qahwa-orange px-7 py-3 text-xs font-black uppercase tracking-wider text-qahwa-noir transition hover:bg-[#ff8129] active:scale-95"
+                >
+                  {paused && !gameOver && !won
+                    ? "Reprendre"
+                    : gameOver || won
+                      ? "Rejouer"
+                      : "Jouer"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mx-auto mt-4 flex max-w-[390px] items-center justify-between gap-3">
+          <p className="text-[11px] leading-5 text-white/40">
+            {running && !paused
+              ? "Reste concentré !"
+              : "Prêt pour un nouveau record ?"}
+          </p>
+
+          {running && !gameOver && !won && (
+            <button
+              type="button"
+              onClick={togglePause}
+              className="shrink-0 rounded-full border border-white/10 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-white/70 transition hover:border-qahwa-orange hover:text-qahwa-orange"
+            >
+              {paused ? "▶ Reprendre" : "Ⅱ Pause"}
+            </button>
+          )}
+        </div>
+
+        {/* Pavé directionnel : haut centré, gauche/bas/droite sur la rangée inférieure */}
+        <div className="mx-auto mt-4 grid w-fit grid-cols-3 gap-2.5 touch-none">
+          <div aria-hidden="true" />
+          {directionButton("up", "Haut", "↑")}
+          <div aria-hidden="true" />
+
+          {directionButton("left", "Gauche", "←")}
+          {directionButton("down", "Bas", "↓")}
+          {directionButton("right", "Droite", "→")}
+        </div>
+
+        <div className="mt-3 text-center text-[10px] leading-5 text-white/35">
+          <p>Flèches du clavier ou ZQSD</p>
+          <p>Espace pour mettre en pause</p>
+        </div>
+
+        <footer className="mt-5 pb-3 text-center">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.3em] text-white/20">
+            Une pause. Une partie. Qahwa.
+          </p>
+        </footer>
+      </div>
+    </main>
   );
 }
