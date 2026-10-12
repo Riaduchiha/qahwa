@@ -3,7 +3,7 @@
 
 
 import { useParams, useRouter } from "next/navigation";
-
+import StudioSelect from "@/components/qahwa/StudioSelect";
 import { useRef, useState } from "react";
 
 
@@ -150,7 +150,7 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
   title: {
 
-    fontFamily: "Arial",
+    fontFamily: "var(--font-display)",
 
     fontSize: 42,
 
@@ -164,7 +164,7 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
   subtitle: {
 
-    fontFamily: "Arial",
+    fontFamily: "var(--font-body)",
 
     fontSize: 18,
 
@@ -178,7 +178,7 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
   description: {
 
-    fontFamily: "Arial",
+    fontFamily: "var(--font-body)",
 
     fontSize: 15,
 
@@ -192,7 +192,7 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
   price: {
 
-    fontFamily: "Arial",
+    fontFamily: "var(--font-display)",
 
     fontSize: 26,
 
@@ -206,7 +206,7 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
   date: {
 
-    fontFamily: "Arial",
+    fontFamily: "var(--font-script)",
 
     fontSize: 16,
 
@@ -794,9 +794,12 @@ export default function StudioEditorPage() {
 
    */
 
-  const handleDownload = async () => {
+  
+const handleDownload = async () => {
+  if (!canvasRef.current) return;
 
-    if (!canvasRef.current) return;
+  await document.fonts.ready;
+
 
 
 
@@ -2112,416 +2115,157 @@ export default function StudioEditorPage() {
 
 
 
-            {/* ================= POLICE ================= */}
-
-            <details className="overflow-hidden rounded-xl border border-[#2E2E2E] bg-[#1B1B1B]">
-
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
-
-                <div className="flex items-center justify-between">
-
-                  <span>POLICE</span>
-
-                  <span className="text-white/35">
-
-                    +
-
-                  </span>
-
-                </div>
-
-              </summary>
-
-
-
-              <div className="space-y-4 border-t border-white/5 px-4 pb-4 pt-4">
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Élément
-
-                  </label>
-
-
-
-                  <select
-
-                    value={selectedElement}
-
-                    onChange={(event) =>
-
-                      setSelectedElement(
-
-                        event.target
-
-                          .value as TextElement
-
-                      )
-
-                    }
-
-                    className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none focus:border-[#FF6B00]"
-
-                  >
-
-                    {data.fields.map(
-
-                      (field) => (
-
-                        <option
-
-                          key={field}
-
-                          value={field}
-
-                        >
-
-                          {field ===
-
-                          "title"
-
-                            ? "Titre"
-
-                            : field ===
-
-                                "subtitle"
-
-                              ? "Sous-titre"
-
-                              : field ===
-
-                                  "description"
-
-                                ? "Description"
-
-                                : field ===
-
-                                    "price"
-
-                                  ? "Prix"
-
-                                  : "Date"}
-
-                        </option>
-
-                      )
-
-                    )}
-
-                  </select>
-
-                </div>
-
-
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Famille
-
-                  </label>
-
-
-
-                  <select
-
-                    value={
-
-                      selectedStyle.fontFamily
-
-                    }
-
-                    onChange={(event) =>
-
-                      updateSelectedStyle({
-
-                        fontFamily:
-
-                          event.target.value,
-
-                      })
-
-                    }
-
-                    className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none focus:border-[#FF6B00]"
-
-                  >
-
-                    <option value="Arial">
-
-                      Arial
-
-                    </option>
-
-                    <option value="Helvetica">
-
-                      Helvetica
-
-                    </option>
-
-                    <option value="Georgia">
-
-                      Georgia
-
-                    </option>
-
-                    <option value="Times New Roman">
-
-                      Times New Roman
-
-                    </option>
-
-                    <option value="Verdana">
-
-                      Verdana
-
-                    </option>
-
-                  </select>
-
-                </div>
-
-
-
-                <div>
-
-                  <div className="mb-2 flex items-center justify-between">
-
-                    <label className="text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                      Taille
-
-                    </label>
-
-
-
-                    <span className="text-[10px] text-white/50">
-
-                      {
-
-                        selectedStyle.fontSize
-
-                      }{" "}
-
-                      px
-
-                    </span>
-
-                  </div>
-
-
-
-                  <input
-
-                    type="range"
-
-                    min="10"
-
-                    max="100"
-
-                    value={
-
-                      selectedStyle.fontSize
-
-                    }
-
-                    onChange={(event) =>
-
-                      updateSelectedStyle({
-
-                        fontSize:
-
-                          Number(
-
-                            event.target
-
-                              .value
-
-                          ),
-
-                      })
-
-                    }
-
-                    className="w-full accent-[#FF6B00]"
-
-                  />
-
-                </div>
-
-
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Épaisseur
-
-                  </label>
-
-
-
-                  <select
-
-                    value={
-
-                      selectedStyle.fontWeight
-
-                    }
-
-                    onChange={(event) =>
-
-                      updateSelectedStyle({
-
-                        fontWeight:
-
-                          Number(
-
-                            event.target
-
-                              .value
-
-                          ),
-
-                      })
-
-                    }
-
-                    className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none focus:border-[#FF6B00]"
-
-                  >
-
-                    <option value="400">
-
-                      Normal
-
-                    </option>
-
-                    <option value="500">
-
-                      Medium
-
-                    </option>
-
-                    <option value="600">
-
-                      Semi-bold
-
-                    </option>
-
-                    <option value="700">
-
-                      Bold
-
-                    </option>
-
-                    <option value="800">
-
-                      Extra-bold
-
-                    </option>
-
-                  </select>
-
-                </div>
-
-
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Alignement
-
-                  </label>
-
-
-
-                  <div className="grid grid-cols-3 gap-2">
-
-                    {(
-
-                      [
-
-                        "left",
-
-                        "center",
-
-                        "right",
-
-                      ] as TextAlign[]
-
-                    ).map(
-
-                      (align) => (
-
-                        <button
-
-                          key={align}
-
-                          type="button"
-
-                          onClick={() =>
-
-                            updateSelectedStyle(
-
-                              {
-
-                                textAlign:
-
-                                  align,
-
-                              }
-
-                            )
-
-                          }
-
-                          className={`rounded-lg border px-3 py-2 text-[9px] uppercase ${
-
-                            selectedStyle.textAlign ===
-
-                            align
-
-                              ? "border-[#FF6B00] bg-[#FF6B00]/10 text-[#FF6B00]"
-
-                              : "border-white/10 bg-[#101010] text-white/50"
-
-                          }`}
-
-                        >
-
-                          {align ===
-
-                          "left"
-
-                            ? "Gauche"
-
-                            : align ===
-
-                                "center"
-
-                              ? "Centre"
-
-                              : "Droite"}
-
-                        </button>
-
-                      )
-
-                    )}
-
-                  </div>
-
-                </div>
-
-              </div>
-
-            </details>
-
+           ```tsx
+{/* ================= POLICE ================= */}
+<details
+  className="overflow-hidden rounded-xl border border-[#2E2E2E] bg-[#1B1B1B]"
+>
+  <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
+    <div className="flex items-center justify-between">
+      <span>POLICE</span>
+      <span className="text-white/35">+</span>
+    </div>
+  </summary>
+
+  <div className="space-y-4 border-t border-white/5 px-4 pb-4 pt-4">
+    {/* ÉLÉMENT */}
+    <div>
+      <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
+        Élément
+      </label>
+
+      
+<StudioSelect
+  value={logoPosition}
+  ariaLabel="Position du logo"
+  options={[
+    { value: "top-left", label: "Haut gauche" },
+    { value: "top-center", label: "Haut centre" },
+    { value: "top-right", label: "Haut droite" },
+    { value: "bottom-left", label: "Bas gauche" },
+    { value: "bottom-center", label: "Bas centre" },
+    { value: "bottom-right", label: "Bas droite" },
+  ]}
+  onChange={(value) =>
+    setLogoPosition(value as LogoPosition)
+  }
+/>
+
+    </div>
+
+    {/* FAMILLE DE POLICE */}
+    <div>
+      <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
+        Famille
+      </label>
+
+      <StudioSelect
+        value={selectedStyle.fontFamily}
+        ariaLabel="Famille de police"
+        options={[
+          {
+            value: "var(--font-display)",
+            label: "Archivo Black — Titres",
+          },
+          {
+            value: "var(--font-body)",
+            label: "Inter — Texte",
+          },
+          {
+            value: "var(--font-script)",
+            label: "Playfair Display — Élégant",
+          },
+        ]}
+        onChange={(value) =>
+          updateSelectedStyle({ fontFamily: value })
+        }
+      />
+    </div>
+
+    {/* TAILLE */}
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <label className="text-[9px] uppercase tracking-[0.14em] text-white/40">
+          Taille
+        </label>
+
+        <span className="text-[10px] text-white/50">
+          {selectedStyle.fontSize} px
+        </span>
+      </div>
+
+      <input
+        type="range"
+        min="10"
+        max="100"
+        value={selectedStyle.fontSize}
+        onChange={(event) =>
+          updateSelectedStyle({
+            fontSize: Number(event.target.value),
+          })
+        }
+        className="w-full accent-[#FF6B00]"
+      />
+    </div>
+
+    {/* ÉPAISSEUR */}
+    <div>
+      <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
+        Épaisseur
+      </label>
+
+      <StudioSelect
+        value={selectedStyle.fontWeight}
+        ariaLabel="Épaisseur de police"
+        options={[
+          { value: "400", label: "Normal" },
+          { value: "500", label: "Medium" },
+          { value: "600", label: "Semi-bold" },
+          { value: "700", label: "Bold" },
+          { value: "800", label: "Extra-bold" },
+        ]}
+        onChange={(value) =>
+          updateSelectedStyle({
+            fontWeight: Number(value),
+          })
+        }
+      />
+    </div>
+
+    {/* ALIGNEMENT */}
+    <div>
+      <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
+        Alignement
+      </label>
+
+      <div className="grid grid-cols-3 gap-2">
+        {(
+          ["left", "center", "right"] as TextAlign[]
+        ).map((align) => (
+          <button
+            key={align}
+            type="button"
+            onClick={() =>
+              updateSelectedStyle({ textAlign: align })
+            }
+            className={`rounded-lg border px-3 py-2 text-[9px] uppercase ${
+              selectedStyle.textAlign === align
+                ? "border-[#FF6B00] bg-[#FF6B00]/10 text-[#FF6B00]"
+                : "border-white/10 bg-[#101010] text-white/50 hover:border-[#FF6B00]/50 hover:text-white"
+            }`}
+          >
+            {align === "left"
+              ? "Gauche"
+              : align === "center"
+                ? "Centre"
+                : "Droite"}
+          </button>
+        ))}
+      </div>
+    </div>
+  </div>
+</details>
+```
 
 
             {/* ================= POSITION ================= */}

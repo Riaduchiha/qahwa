@@ -102,4 +102,23 @@ a {
     left: 130%;
   }
 }
+/* Menus déroulants — thème Qahwa */
+select {
+  color-scheme: dark;
+  accent-color: #FF6B00;
+  background-color: #1B1B1B;
+  color: #FFFFFF;
+  border-color: #FF6B00;
+}
+
+select option {
+  background-color: #1B1B1B;
+  color: #FFFFFF;
+}
+
+select:focus {
+  outline: 2px solid #FF6B00;
+  outline-offset: 2px;
+}
+
 
