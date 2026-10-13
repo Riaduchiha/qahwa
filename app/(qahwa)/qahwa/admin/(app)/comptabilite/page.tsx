@@ -1,5 +1,5 @@
 
-import PlayPage from "../../../(protected)/play/page";
+import PlayPage from "../../../(protected)/comptabilite/page";
 
 export default function AdminPlayPage() {
   return <PlayPage />;

@@ -5,6 +5,7 @@
 import { useParams, useRouter } from "next/navigation";
 
 import { useEffect, useRef, useState } from "react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 
 
@@ -353,7 +354,7 @@ export default function StudioEditorPage() {
     const link = document.createElement("link");
     link.id = id;
     link.rel = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&family=Lato:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Roboto:wght@400;500;700;900&display=swap";
+    link.href = "https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Caveat+Brush&family=Inter:wght@400;500;600;700;800&family=Lato:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Roboto:wght@400;500;700;900&display=swap";
     document.head.appendChild(link);
   }, []);
 
@@ -392,6 +393,10 @@ export default function StudioEditorPage() {
 
 
   const [heroImage, setHeroImage] = useState<string | null>(null);
+  const [savedCreationId, setSavedCreationId] = useState<string | null>(null);
+  const [creationName, setCreationName] = useState("Ma création");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
   const [canvasBackground, setCanvasBackground] = useState("linear-gradient(135deg, #1b1b1b 0%, #111111 58%, #090909 100%)");
 
   const [logoImage, setLogoImage] = useState<string | null>(null);
@@ -508,14 +513,37 @@ export default function StudioEditorPage() {
 
 
 
+  const handleLogoPointerDown = (event: React.PointerEvent<HTMLElement>) => {
+    if (!logoImage) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedLayerId("logo");
+    const parent = canvasRef.current;
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const initialX = logoX;
+    const initialY = logoY;
+    const move = (moveEvent: PointerEvent) => {
+      setLogoX(Math.max(0, Math.min(100 - (logoSize / 1080) * 100, initialX + ((moveEvent.clientX - startX) / rect.width) * 100)));
+      setLogoY(Math.max(0, Math.min(96, initialY + ((moveEvent.clientY - startY) / rect.height) * 100)));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   const [logoSize, setLogoSize] = useState(80);
 
   const [logoOpacity, setLogoOpacity] = useState(100);
+  const [logoX, setLogoX] = useState(78);
+  const [logoY, setLogoY] = useState(4);
 
-  const [logoPosition, setLogoPosition] =
-
-    useState<LogoPosition>("top-right");
+  const [logoPosition, setLogoPosition] = useState<LogoPosition>("top-right");
 
 
 
@@ -611,7 +639,102 @@ export default function StudioEditorPage() {
     setLayerOrder(["background", "overlay", "logo", ...decorations.map((layer) => layer.id), "text:subtitle", "text:title", "text:description", "text:price", "text:date"]);
   }, []);
 
+  // Charge une création enregistrée si l'URL contient ?saved=<id>.
+  useEffect(() => {
+    const savedId = new URLSearchParams(window.location.search).get("saved");
+    if (!savedId) return;
 
+    let cancelled = false;
+
+    const loadCreation = async () => {
+      const supabase = createSupabaseBrowserClient() as any;
+      const { data: creation, error } = await supabase
+        .from("qahwa_studio_creations")
+        .select("id, name, category, design")
+        .eq("id", savedId)
+        .single();
+
+      if (cancelled) return;
+      if (error || !creation) {
+        setSaveMessage("Impossible de charger cette création. Vérifie ta connexion.");
+        return;
+      }
+
+      const design = creation.design ?? {};
+      setSavedCreationId(creation.id);
+      setCreationName(creation.name || "Ma création");
+      if (design.heroImage !== undefined) setHeroImage(design.heroImage);
+      if (design.canvasBackground !== undefined) setCanvasBackground(design.canvasBackground);
+      if (design.logoImage !== undefined) setLogoImage(design.logoImage);
+      if (Array.isArray(design.customLayers)) setCustomLayers(design.customLayers);
+      if (Array.isArray(design.layerOrder)) setLayerOrder(design.layerOrder);
+      if (typeof design.logoSize === "number") setLogoSize(design.logoSize);
+      if (typeof design.logoOpacity === "number") setLogoOpacity(design.logoOpacity);
+      if (typeof design.logoX === "number") setLogoX(design.logoX);
+      if (typeof design.logoY === "number") setLogoY(design.logoY);
+      if (design.logoPosition) setLogoPosition(design.logoPosition);
+      if (design.selectedElement) setSelectedElement(design.selectedElement);
+      if (design.textStyles) setTextStyles(design.textStyles);
+      if (design.textPositions) setTextPositions(design.textPositions);
+      if (design.text) setText(design.text);
+      if (typeof design.newTextValue === "string") setNewTextValue(design.newTextValue);
+    };
+
+    void loadCreation();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSaveCreation = async () => {
+    if (isSaving) return;
+
+    let name = creationName.trim();
+    if (!savedCreationId) {
+      const enteredName = window.prompt("Donne un nom à ton affiche :", name || "Ma création");
+      if (enteredName === null) return;
+      name = enteredName.trim();
+    }
+    if (!name) {
+      setSaveMessage("Entre un nom pour ta création.");
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveMessage("");
+    try {
+      const supabase = createSupabaseBrowserClient() as any;
+      const design = {
+        heroImage, canvasBackground, logoImage, customLayers, layerOrder,
+        logoSize, logoOpacity, logoX, logoY, logoPosition, selectedElement, textStyles,
+        textPositions, text, newTextValue,
+      };
+      const payload = {
+        name,
+        category: slug,
+        design,
+        updated_at: new Date().toISOString(),
+      };
+
+      const result = savedCreationId
+        ? await supabase.from("qahwa_studio_creations").update(payload).eq("id", savedCreationId).select("id").single()
+        : await supabase.from("qahwa_studio_creations").insert(payload).select("id").single();
+
+      if (result.error) throw result.error;
+      const id = result.data.id as string;
+      setSavedCreationId(id);
+      setCreationName(name);
+      const url = new URL(window.location.href);
+      url.searchParams.set("saved", id);
+      url.searchParams.delete("new");
+      url.searchParams.delete("design");
+      window.history.replaceState({}, "", url.toString());
+      setSaveMessage("Création enregistrée !");
+    } catch (error) {
+      console.error("Erreur de sauvegarde Studio :", error);
+      setSaveMessage("Échec de l’enregistrement. Vérifie que tu es connecté à Qahwa et que la table Supabase existe.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const hasField = (element: TextElement) =>
 
@@ -1942,7 +2065,7 @@ export default function StudioEditorPage() {
 
       {/* HEADER */}
 
-      <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#0D0D0D] px-3 py-3 sm:px-5">
+      <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/25 px-3 py-3 backdrop-blur-2xl sm:px-5">
 
         <div className="flex items-center gap-4">
 
@@ -2028,6 +2151,18 @@ export default function StudioEditorPage() {
 
 
 
+          <div className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={handleSaveCreation}
+              disabled={isSaving}
+              className="rounded-lg border border-white/20 bg-[#FF6B00] px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white transition hover:bg-[#e85f00] disabled:cursor-wait disabled:opacity-60"
+            >
+              {isSaving ? "Enregistrement…" : savedCreationId ? "Enregistrer" : "Enregistrer ma création"}
+            </button>
+            {saveMessage ? <span role="status" className="max-w-56 text-right text-[10px] text-white/75">{saveMessage}</span> : null}
+          </div>
+
           <button
 
             type="button"
@@ -2109,18 +2244,23 @@ export default function StudioEditorPage() {
               {/* LOGO */}
 
               {logoImage && (
-
-                <img
-
-                  src={logoImage}
-
-                  alt=""
-
-                  className={`absolute object-contain ${logoPositionClass[logoPosition]}`}
-                  style={{ zIndex: getLayerZ("logo"), width: `${(logoSize / 1080) * 100}cqw`, opacity: logoOpacity / 100 }}
-
-                />
-
+                <div
+                  onPointerDown={handleLogoPointerDown}
+                  onClick={() => setSelectedLayerId("logo")}
+                  title="Fais glisser pour déplacer le logo"
+                  className="absolute cursor-move touch-none"
+                  style={{
+                    zIndex: getLayerZ("logo"),
+                    left: `${logoX}%`,
+                    top: `${logoY}%`,
+                    width: `${(logoSize / 1080) * 100}%`,
+                    outline: selectedLayerId === "logo" ? "1px dashed rgba(255,255,255,.9)" : "none",
+                    opacity: logoOpacity / 100,
+                  }}
+                >
+                  <img src={logoImage} alt="Logo Qahwa" draggable={false} className="block h-auto w-full object-contain" />
+                  {selectedLayerId === "logo" && <span className="absolute -bottom-2 -right-2 h-3 w-3 rounded-sm border border-white bg-black" aria-hidden="true" />}
+                </div>
               )}
 
 
@@ -2204,7 +2344,7 @@ export default function StudioEditorPage() {
               {/* BARRE D’OUTILS CONTEXTUELLE — édition rapide façon Canva */}
               {selectedLayer && (
                 <div
-                  className="absolute bottom-3 left-3 right-3 z-[2147483000] max-h-[62%] overflow-y-auto rounded-2xl border border-white/70 bg-white/65 p-3 text-black shadow-[0_12px_40px_rgba(0,0,0,0.22)] backdrop-blur-2xl supports-[backdrop-filter]:bg-white/55 sm:left-1/2 sm:right-auto sm:w-[min(520px,calc(100%-24px))] sm:-translate-x-1/2"
+                  className="absolute bottom-3 left-3 right-3 z-[2147483000] max-h-[62%] overflow-y-auto rounded-2xl border border-black/10 bg-white p-3 text-black shadow-[0_12px_40px_rgba(0,0,0,0.28)] sm:left-1/2 sm:right-auto sm:w-[min(520px,calc(100%-24px))] sm:-translate-x-1/2"
                   onPointerDown={(event) => event.stopPropagation()}
                 >
                   <div className="mb-3 flex items-center gap-3 border-b border-black/10 pb-3">
@@ -2272,7 +2412,7 @@ export default function StudioEditorPage() {
 
               {/* BARRE CONTEXTUELLE POUR LES TEXTES PRÉDÉFINIS */}
               {!selectedLayer && activeCanvasText && (
-                <div className="absolute bottom-2 left-2 right-2 z-[2147483000] max-h-[55%] overflow-y-auto rounded-xl border border-white/70 bg-white/65 p-3 text-black shadow-[0_12px_40px_rgba(0,0,0,0.22)] backdrop-blur-2xl supports-[backdrop-filter]:bg-white/55" onPointerDown={(event) => event.stopPropagation()}>
+                <div className="absolute bottom-2 left-2 right-2 z-[2147483000] max-h-[55%] overflow-y-auto rounded-xl border-2 border-black bg-white p-3 text-black shadow-2xl" onPointerDown={(event) => event.stopPropagation()}>
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <div>
                       <p className="text-[11px] font-bold">Modifier : {activeCanvasText}</p>
@@ -2324,14 +2464,14 @@ export default function StudioEditorPage() {
 
         {/* PANNEAU */}
 
-        <aside className="w-full shrink-0 overflow-y-auto border-t border-white/10 bg-[#101010] p-3 sm:p-4 lg:max-h-[calc(100vh-4rem)] lg:w-[400px] lg:border-l lg:border-t-0">
+        <aside className="w-full shrink-0 overflow-y-auto border-t border-white/5 bg-transparent p-3 backdrop-blur-none sm:p-4 lg:max-h-[calc(100vh-4rem)] lg:w-[400px] lg:border-l lg:border-t-0">
 
-          <div className="mb-3 rounded-xl border border-white/10 bg-[#1B1B1B] p-3">
+          <div className="mb-3 rounded-xl border border-white/10 bg-transparent p-3">
             <p className="text-xs font-semibold text-white">Crée ton affiche en 3 étapes</p>
             <p className="mt-1 text-[11px] leading-5 text-white/55">1. Choisis un outil. 2. Clique sur un élément pour le modifier ou fais-le glisser pour le déplacer. 3. Clique sur « Télécharger ».</p>
           </div>
 
-          <div className="mb-3 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-[#090909] p-1">
+          <div className="mb-3 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-transparent p-1">
 
             {[
 
@@ -2392,7 +2532,7 @@ export default function StudioEditorPage() {
 
             <details
 
-              className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]"
+              className="overflow-hidden rounded-xl border border-white/10 bg-transparent"
 
               open
 
@@ -2502,7 +2642,7 @@ export default function StudioEditorPage() {
 
 
 
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white"><div className="flex items-center justify-between"><span>Ajouter un texte libre</span><span className="text-white/35">+</span></div></summary>
               <div className="space-y-3 border-t border-white/5 px-4 pb-4 pt-4">
                 <input value={newTextValue} onChange={(event) => setNewTextValue(event.target.value)} placeholder="Écris ton texte" className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none focus:border-[#FFFFFF]" />
@@ -2512,7 +2652,7 @@ export default function StudioEditorPage() {
 
             {/* ================= POLICE ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -2557,6 +2697,10 @@ export default function StudioEditorPage() {
                         : "Date",
                     }))}
                   />
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button type="button" onClick={() => { setText((current) => ({ ...current, [selectedElement]: "" })); setSelectedLayerId(null); }} className="rounded-lg border border-red-400/30 bg-transparent px-3 py-2 text-[10px] font-semibold text-red-300 hover:bg-red-500/10">Supprimer ce texte</button>
+                    <button type="button" onClick={() => setText((current) => ({ ...current, [selectedElement]: selectedElement === "title" ? "Nouveau produit" : selectedElement === "subtitle" ? "Une nouvelle création Qahwa" : selectedElement === "description" ? "Découvrez notre nouvelle création." : selectedElement === "price" ? "850 DA" : "Samedi 12 octobre" }))} className="rounded-lg border border-white/15 bg-transparent px-3 py-2 text-[10px] font-semibold text-white/75 hover:bg-white/10">Restaurer le texte</button>
+                  </div>
 
                 </div>
 
@@ -2572,10 +2716,8 @@ export default function StudioEditorPage() {
 
 
 
-                  <StudioDarkSelect
-                    value={selectedStyle.fontFamily}
-                    onChange={(value) => updateSelectedStyle({ fontFamily: value })}
-                    options={[
+                  <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-transparent p-1.5" aria-label="Choisir une police, aperçu instantané">
+                    {[
                       { label: "Arial", value: "Arial" },
                       { label: "Arial Black", value: "Arial Black" },
                       { label: "Helvetica", value: "Helvetica" },
@@ -2598,9 +2740,19 @@ export default function StudioEditorPage() {
                       { label: "Lato", value: "Lato, Arial, sans-serif" },
                       { label: "Oswald", value: "Oswald, Arial, sans-serif" },
                       { label: "Playfair Display", value: "Playfair Display, Georgia, serif" },
+                      { label: "Caveat Brush ✦", value: '"Caveat Brush", cursive' },
                       { label: "Bebas Neue", value: "Bebas Neue, Impact, sans-serif" },
-                    ]}
-                  />
+                      { label: "Caveat Brush ✦", value: '"Caveat Brush", cursive' },
+                    ].map((font) => (
+                      <button key={font.value} type="button" onClick={() => updateSelectedStyle({ fontFamily: font.value })}
+                        className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${selectedStyle.fontFamily === font.value ? "border-white/60 bg-white/10 text-white" : "border-transparent bg-transparent text-white/75 hover:border-white/20 hover:bg-white/5 hover:text-white"}`}
+                        aria-pressed={selectedStyle.fontFamily === font.value}>
+                        <span style={{ fontFamily: font.value }} className="text-sm">{font.label}</span>
+                        <span style={{ fontFamily: font.value }} className="max-w-[55%] truncate text-xs text-white/45">Aa Qahwa</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[10px] leading-4 text-white/45">Clique sur une police : l’aperçu sur l’affiche change immédiatement. La liste reste ouverte pour comparer les styles.</p>
 
                 </div>
 
@@ -2796,7 +2948,7 @@ export default function StudioEditorPage() {
 
             {/* ================= POSITION ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -2976,7 +3128,7 @@ export default function StudioEditorPage() {
 
             {/* ================= COULEUR ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -3127,7 +3279,7 @@ export default function StudioEditorPage() {
               <>
             {/* ================= HERO ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -3241,7 +3393,7 @@ export default function StudioEditorPage() {
 
 
 
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]" open>
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent" open>
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white"><div className="flex items-center justify-between"><span>IMAGES SUPPLÉMENTAIRES</span><span className="text-white/35">+</span></div></summary>
               <div className="space-y-3 border-t border-white/5 px-4 pb-4 pt-4">
                 <input ref={extraImagesInputRef} type="file" accept="image/*" multiple onChange={handleExtraImagesChange} className="hidden" />
@@ -3253,7 +3405,7 @@ export default function StudioEditorPage() {
 
             {/* ================= LOGO ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -3337,7 +3489,14 @@ export default function StudioEditorPage() {
 
                 )}
 
-
+                {logoImage && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setSelectedLayerId("logo")} className="rounded-lg border border-white/15 bg-transparent px-3 py-2.5 text-[10px] font-semibold text-white hover:bg-white/10">Sélectionner le logo</button>
+                    <button type="button" onClick={() => { setLogoImage(null); setSelectedLayerId(null); }} className="rounded-lg border border-red-400/30 bg-transparent px-3 py-2.5 text-[10px] font-semibold text-red-300 hover:bg-red-500/10">Supprimer le logo</button>
+                    <button type="button" onClick={() => moveLayerOrder("logo", "down")} className="rounded-lg border border-white/15 bg-transparent px-3 py-2.5 text-[10px] font-semibold text-white/75 hover:bg-white/10">Envoyer derrière</button>
+                    <button type="button" onClick={() => moveLayerOrder("logo", "up")} className="rounded-lg border border-white/15 bg-transparent px-3 py-2.5 text-[10px] font-semibold text-white/75 hover:bg-white/10">Mettre devant</button>
+                  </div>
+                )}
 
                 <div>
 
@@ -3427,11 +3586,20 @@ export default function StudioEditorPage() {
 
 
 
+                <div className="space-y-3 rounded-xl border border-white/10 bg-transparent p-3">
+                  <label className="block text-[10px] text-white/70">Position horizontale <span className="float-right tabular-nums">{Math.round(logoX)}%</span>
+                    <input type="range" min="0" max="95" value={logoX} onChange={(event) => setLogoX(Number(event.target.value))} className="mt-2 w-full accent-white" />
+                  </label>
+                  <label className="block text-[10px] text-white/70">Position verticale <span className="float-right tabular-nums">{Math.round(logoY)}%</span>
+                    <input type="range" min="0" max="96" value={logoY} onChange={(event) => setLogoY(Number(event.target.value))} className="mt-2 w-full accent-white" />
+                  </label>
+                </div>
+
                 <div>
 
                   <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
 
-                    Position
+                    Position prédéfinie
 
                   </label>
 
@@ -3441,17 +3609,20 @@ export default function StudioEditorPage() {
 
                     value={logoPosition}
 
-                    onChange={(event) =>
-
-                      setLogoPosition(
-
-                        event.target
-
-                          .value as LogoPosition
-
-                      )
-
-                    }
+                    onChange={(event) => {
+                      const position = event.target.value as LogoPosition;
+                      setLogoPosition(position);
+                      const positions: Record<LogoPosition, { x: number; y: number }> = {
+                        "top-left": { x: 3, y: 3 },
+                        "top-center": { x: 46, y: 3 },
+                        "top-right": { x: 90, y: 3 },
+                        "bottom-left": { x: 3, y: 88 },
+                        "bottom-center": { x: 46, y: 88 },
+                        "bottom-right": { x: 90, y: 88 },
+                      };
+                      setLogoX(positions[position].x);
+                      setLogoY(positions[position].y);
+                    }}
 
                     className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white [color-scheme:dark] accent-[#FFFFFF] outline-none focus:border-[#FFFFFF]"
 
@@ -3520,7 +3691,7 @@ export default function StudioEditorPage() {
               <>
             {/* ================= FORMAT ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -3638,7 +3809,7 @@ export default function StudioEditorPage() {
 
             {activeTab === "formes" && (
               <div className="space-y-3">
-                <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+                <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 text-xs font-semibold text-white">
                     <span>Options avancées : avant / arrière</span>
                     <span className="text-[10px] font-normal text-white/40">Calques +</span>
@@ -3677,7 +3848,7 @@ export default function StudioEditorPage() {
                 </div>
                 <div className="rounded-xl border border-white/10 bg-[#1B1B1B] p-4">
                   <div className="mb-3 flex items-center justify-between"><h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Éléments ajoutés</h2><span className="text-[10px] text-white/40">{customLayers.length}</span></div>
-                  {customLayers.length === 0 ? <p className="text-xs text-white/40">Ajoute une forme, une image ou un texte pour commencer.</p> : <div className="space-y-2">{customLayers.map((layer, index) => <div key={layer.id} className={`flex items-center gap-2 rounded-lg border p-2 ${selectedLayerId === layer.id ? "border-[#FFFFFF] bg-[#FFFFFF]/5" : "border-white/10"}`}><button type="button" onClick={() => setSelectedLayerId(layer.id)} className="min-w-0 flex-1 truncate text-left text-xs text-white">{layer.type === "text" ? `Texte : ${layer.text || "Sans texte"}` : layer.type === "image" ? `Image ${index + 1}` : `Forme : ${layer.shape === "rectangle" ? "Rectangle" : layer.shape === "circle" ? "Cercle" : "Ligne"}`}</button><button type="button" onClick={() => setCustomLayers((layers) => layers.filter((item) => item.id !== layer.id))} className="rounded px-2 py-1 text-[10px] text-white/50 hover:bg-white/10 hover:text-white">✕</button></div>)}</div>}
+                  {customLayers.length === 0 ? <p className="text-xs text-white/40">Ajoute une forme, une image ou un texte pour commencer.</p> : <div className="space-y-2">{customLayers.map((layer, index) => <div key={layer.id} className={`flex items-center gap-2 rounded-lg border p-2 ${selectedLayerId === layer.id ? "border-[#FFFFFF] bg-[#FFFFFF]/5" : "border-white/10"}`}><button type="button" onClick={() => setSelectedLayerId(layer.id)} className="min-w-0 flex-1 truncate text-left text-xs text-white">{layer.type === "text" ? `Texte : ${layer.text || "Sans texte"}` : layer.type === "image" ? `Image ${index + 1}` : `Forme : ${layer.shape === "rectangle" ? "Rectangle" : layer.shape === "circle" ? "Cercle" : "Ligne"}`}</button><button type="button" onClick={() => { setCustomLayers((layers) => layers.filter((item) => item.id !== layer.id)); setLayerOrder((order) => order.filter((id) => id !== layer.id)); if (selectedLayerId === layer.id) setSelectedLayerId(null); }} className="rounded px-2 py-1 text-[10px] text-white/50 hover:bg-white/10 hover:text-white">✕</button></div>)}</div>}
                 </div>
                 {selectedLayer && (
                   <div className="space-y-4 rounded-xl border border-[#FFFFFF]/40 bg-[#1B1B1B] p-4">
@@ -3704,7 +3875,9 @@ export default function StudioEditorPage() {
                             { label: "Lato", value: "Lato, Arial, sans-serif" },
                             { label: "Oswald", value: "Oswald, Arial, sans-serif" },
                             { label: "Playfair Display", value: "Playfair Display, Georgia, serif" },
+                            { label: "Caveat Brush ✦", value: '"Caveat Brush", cursive' },
                             { label: "Bebas Neue", value: "Bebas Neue, Impact, sans-serif" },
+                            { label: "Caveat Brush ✦", value: '"Caveat Brush", cursive' },
                             { label: "Arial", value: "Arial" },
                             { label: "Georgia", value: "Georgia" },
                             { label: "Impact", value: "Impact" },

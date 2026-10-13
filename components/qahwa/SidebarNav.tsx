@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -10,13 +11,7 @@ const NAV_ITEMS = [
     href: "",
     label: "Dashboard",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-full w-full">
         <path d="M3 10.5 12 3l9 7.5" />
         <path d="M5 9.5V21h14V9.5" />
         <path d="M9 21v-6h6v6" />
@@ -27,13 +22,7 @@ const NAV_ITEMS = [
     href: "/commandes",
     label: "Commandes",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-full w-full">
         <path d="M6 3h12v18H6z" />
         <path d="M9 7h6M9 11h6M9 15h4" />
       </svg>
@@ -43,13 +32,7 @@ const NAV_ITEMS = [
     href: "/menu",
     label: "Menu",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-full w-full">
         <path d="M7 3v8" />
         <path d="M4.5 3v5.5a2.5 2.5 0 0 0 5 0V3" />
         <path d="M7 11v10" />
@@ -59,37 +42,21 @@ const NAV_ITEMS = [
     ),
   },
   {
-  label: "Studio",
-  href: "/studio",
-  icon: (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M8 8h8" />
-      <path d="M8 12h8" />
-      <path d="M8 16h5" />
-    </svg>
-  ),
-},
+    href: "/studio",
+    label: "Studio",
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-full w-full">
+        <path d="m14 6 4 4" />
+        <path d="m3 21 3.5-.8L20 6.7a2.83 2.83 0 0 0-4-4L2.5 16.2 2 20z" />
+        <path d="m12 8 4 4" />
+      </svg>
+    ),
+  },
   {
     href: "/stock",
     label: "Stock",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-full w-full">
         <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z" />
         <path d="m4 7.5 8 4.5 8-4.5" />
         <path d="M12 12v9" />
@@ -100,13 +67,7 @@ const NAV_ITEMS = [
     href: "/evenements",
     label: "Calendrier",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-full w-full">
         <rect x="3" y="5" width="18" height="16" rx="2" />
         <path d="M7 3v4M17 3v4M3 10h18" />
         <path d="M8 14h2M14 14h2M8 17h2M14 17h2" />
@@ -117,13 +78,7 @@ const NAV_ITEMS = [
     href: "/tables",
     label: "Tables",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-full w-full">
         <path d="M4 10h16" />
         <path d="M5 10l1 8M19 10l-1 8M8 18h8" />
         <path d="M6 6h12a2 2 0 0 1 2 2v2H4V8a2 2 0 0 1 2-2Z" />
@@ -134,31 +89,20 @@ const NAV_ITEMS = [
     href: "/employes",
     label: "Employés",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-full w-full">
         <circle cx="12" cy="8" r="3.5" />
         <path d="M5 21c.6-4 3-6 7-6s6.4 2 7 6" />
       </svg>
     ),
   },
   {
-    href: "/play",
-    label: "PLAY",
+    href: "/comptabilite",
+    label: "Comptabilité",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
-        <circle cx="12" cy="12" r="9" />
-        <path d="m10 8 6 4-6 4z" />
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-full w-full">
+        <rect x="4" y="2" width="16" height="20" rx="2" />
+        <path d="M8 6h8v4H8z" />
+        <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
       </svg>
     ),
   },
@@ -166,13 +110,7 @@ const NAV_ITEMS = [
     href: "/statistiques",
     label: "Statistiques",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-full w-full">
         <path d="M4 20V10" />
         <path d="M10 20V5" />
         <path d="M16 20v-8" />
@@ -184,13 +122,7 @@ const NAV_ITEMS = [
     href: "/parametres",
     label: "Paramètres",
     icon: (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        className="h-full w-full"
-      >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-full w-full">
         <path d="M12 3v2M12 19v2M3 12h2M19 12h2" />
         <path d="m5.6 5.6 1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" />
         <circle cx="12" cy="12" r="4" />
@@ -231,9 +163,7 @@ export default function SidebarNav({
 
   return (
     <>
-      {/* =========================
-          DESKTOP SIDEBAR
-          ========================= */}
+      {/* MENU LATERAL DESKTOP */}
       <div className="hidden h-full md:flex md:flex-col">
         <nav className="flex flex-col gap-1.5">
           {NAV_ITEMS.map((item) => {
@@ -246,12 +176,12 @@ export default function SidebarNav({
                 href={href}
                 className={`group relative flex items-center gap-3 overflow-hidden rounded-xl px-3 py-2.5 transition-all duration-200 ${
                   active
-                    ? "bg-qahwa-panel2 text-qahwa-orange shadow-[inset_0_0_0_1px_rgba(255,107,0,0.12)]"
-                    : "text-qahwa-muted hover:bg-qahwa-panel2/80 hover:text-qahwa-text"
+                    ? "bg-qahwa-panel2 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12)]"
+                    : "text-qahwa-muted hover:bg-qahwa-panel2/80 hover:text-white"
                 }`}
               >
                 <span
-                  className={`absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r-full bg-qahwa-orange transition-all duration-300 ${
+                  className={`absolute left-0 top-1/2 h-6 -translate-y-1/2 rounded-r-full bg-white transition-all duration-300 ${
                     active ? "w-0.5 opacity-100" : "w-0 opacity-0"
                   }`}
                 />
@@ -259,8 +189,8 @@ export default function SidebarNav({
                 <span
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200 ${
                     active
-                      ? "bg-qahwa-orange/10 text-qahwa-orange"
-                      : "text-qahwa-muted group-hover:bg-qahwa-panel2 group-hover:text-qahwa-orange"
+                      ? "bg-white/10 text-white"
+                      : "text-qahwa-muted group-hover:bg-qahwa-panel2 group-hover:text-white"
                   }`}
                 >
                   <span className="h-[19px] w-[19px] transition-transform duration-200 group-hover:scale-110">
@@ -279,7 +209,7 @@ export default function SidebarNav({
                 </span>
 
                 {active && (
-                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-qahwa-orange shadow-[0_0_8px_rgba(255,107,0,0.7)]" />
+                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-white" />
                 )}
               </Link>
             );
@@ -291,9 +221,7 @@ export default function SidebarNav({
         </div>
       </div>
 
-      {/* =========================
-          MOBILE BOTTOM NAVIGATION
-          ========================= */}
+      {/* NAVIGATION MOBILE */}
       <div className="fixed inset-x-0 bottom-0 z-[90] border-t border-qahwa-border bg-qahwa-panel px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.35)] md:hidden">
         <div className="relative mx-auto flex h-[72px] max-w-xl items-center justify-around">
           {mobileMainItems.map((item) => {
@@ -306,15 +234,13 @@ export default function SidebarNav({
                 href={href}
                 className={`flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-1 transition-colors ${
                   active
-                    ? "text-qahwa-orange"
-                    : "text-qahwa-muted hover:text-qahwa-text"
+                    ? "text-white"
+                    : "text-qahwa-muted hover:text-white"
                 }`}
               >
                 <span
                   className={`flex h-9 w-9 items-center justify-center rounded-xl transition-all ${
-                    active
-                      ? "bg-qahwa-orange/10 text-qahwa-orange"
-                      : "text-qahwa-muted"
+                    active ? "bg-white/10 text-white" : "text-qahwa-muted"
                   }`}
                 >
                   <span className="h-[20px] w-[20px]">{item.icon}</span>
@@ -331,7 +257,6 @@ export default function SidebarNav({
             );
           })}
 
-          {/* PLUS */}
           <button
             type="button"
             onClick={() => setMoreOpen((value) => !value)}
@@ -340,7 +265,7 @@ export default function SidebarNav({
               mobileMoreItems.some((item) =>
                 isActive(pathname, item.href, basePath)
               )
-                ? "text-qahwa-orange"
+                ? "text-white"
                 : "text-qahwa-muted"
             }`}
           >
@@ -350,7 +275,7 @@ export default function SidebarNav({
                 mobileMoreItems.some((item) =>
                   isActive(pathname, item.href, basePath)
                 )
-                  ? "bg-qahwa-orange/10"
+                  ? "bg-white/10"
                   : ""
               }`}
             >
@@ -388,16 +313,15 @@ export default function SidebarNav({
                       onClick={() => setMoreOpen(false)}
                       className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
                         active
-                          ? "bg-qahwa-orange/10 text-qahwa-orange"
-                          : "text-qahwa-muted hover:bg-qahwa-panel2 hover:text-qahwa-text"
+                          ? "bg-white/10 text-white"
+                          : "text-qahwa-muted hover:bg-qahwa-panel2 hover:text-white"
                       }`}
                     >
                       <span className="h-5 w-5 shrink-0">{item.icon}</span>
-
                       <span className="text-sm">{item.label}</span>
 
                       {active && (
-                        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-qahwa-orange" />
+                        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-white" />
                       )}
                     </Link>
                   );
