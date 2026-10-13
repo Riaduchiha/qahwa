@@ -3,8 +3,8 @@
 
 
 import { useParams, useRouter } from "next/navigation";
-import StudioSelect from "@/components/qahwa/StudioSelect";
-import { useRef, useState } from "react";
+
+import { useEffect, useRef, useState } from "react";
 
 
 
@@ -21,6 +21,23 @@ type TextElement =
   | "date";
 
 
+
+type CustomLayer = {
+  id: string;
+  type: "text" | "image" | "shape";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  opacity: number;
+  text?: string;
+  src?: string;
+  shape?: "rectangle" | "circle" | "line";
+  fontFamily?: string;
+  fontSize?: number;
+  fontWeight?: number;
+};
 
 type TextAlign = "left" | "center" | "right";
 
@@ -150,7 +167,7 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
   title: {
 
-    fontFamily: "var(--font-display)",
+    fontFamily: "Arial",
 
     fontSize: 42,
 
@@ -164,7 +181,7 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
   subtitle: {
 
-    fontFamily: "var(--font-body)",
+    fontFamily: "Arial",
 
     fontSize: 18,
 
@@ -178,7 +195,7 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
   description: {
 
-    fontFamily: "var(--font-body)",
+    fontFamily: "Arial",
 
     fontSize: 15,
 
@@ -192,7 +209,7 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
   price: {
 
-    fontFamily: "var(--font-display)",
+    fontFamily: "Arial",
 
     fontSize: 26,
 
@@ -200,13 +217,13 @@ const defaultTextStyles: Record<TextElement, TextStyle> = {
 
     textAlign: "left",
 
-    color: "#FF6B00",
+    color: "#FFFFFF",
 
   },
 
   date: {
 
-    fontFamily: "var(--font-script)",
+    fontFamily: "Arial",
 
     fontSize: 16,
 
@@ -268,6 +285,56 @@ const defaultTextPositions: Record<TextElement, TextPosition> = {
 
 
 
+function StudioDarkSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: { label: string; value: string }[];
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value) ?? options[0];
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-left text-xs text-white outline-none transition hover:border-[#FFFFFF] focus:border-[#FFFFFF]"
+      >
+        <span>{selected?.label ?? value}</span>
+        <span className={`ml-3 text-white/50 transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
+      </button>
+      {open && (
+        <>
+          <button type="button" aria-label="Fermer le menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
+          <div role="listbox" className="relative z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[#333333] bg-[#101010] p-1 shadow-2xl shadow-black/60">
+            {options.map((option) => {
+              const active = option.value === value;
+              return (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  key={option.value}
+                  onClick={() => { onChange(option.value); setOpen(false); }}
+                  className={`block w-full rounded-md px-3 py-2 text-left text-xs transition ${active ? "bg-[#FFFFFF] font-semibold text-white" : "bg-transparent text-white/80 hover:bg-white/10 hover:text-white"}`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function StudioEditorPage() {
 
     const [activeTab, setActiveTab] = useState<
@@ -280,6 +347,16 @@ export default function StudioEditorPage() {
 
   const router = useRouter();
 
+  useEffect(() => {
+    const id = "qahwa-studio-google-fonts";
+    if (document.getElementById(id)) return;
+    const link = document.createElement("link");
+    link.id = id;
+    link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&family=Lato:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Roboto:wght@400;500;700;900&display=swap";
+    document.head.appendChild(link);
+  }, []);
+
 
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -287,6 +364,8 @@ export default function StudioEditorPage() {
   const heroInputRef = useRef<HTMLInputElement>(null);
 
   const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const extraImagesInputRef = useRef<HTMLInputElement>(null);
 
 
 
@@ -313,8 +392,120 @@ export default function StudioEditorPage() {
 
 
   const [heroImage, setHeroImage] = useState<string | null>(null);
+  const [canvasBackground, setCanvasBackground] = useState("linear-gradient(135deg, #1b1b1b 0%, #111111 58%, #090909 100%)");
 
   const [logoImage, setLogoImage] = useState<string | null>(null);
+
+  const [customLayers, setCustomLayers] = useState<CustomLayer[]>([]);
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
+  const [newTextValue, setNewTextValue] = useState("Votre texte");
+
+  // Ordre global des calques, du fond (premier) au premier plan (dernier).
+  const [layerOrder, setLayerOrder] = useState<string[]>([
+    "background", "overlay", "logo",
+    "text:subtitle", "text:title", "text:description", "text:price", "text:date",
+  ]);
+
+  const selectedLayer = customLayers.find((layer) => layer.id === selectedLayerId) ?? null;
+
+  const updateCustomLayer = (id: string, changes: Partial<CustomLayer>) => {
+    setCustomLayers((layers) => layers.map((layer) => layer.id === id ? { ...layer, ...changes } : layer));
+  };
+
+  const getLayerZ = (id: string) => {
+    const index = layerOrder.indexOf(id);
+    return index < 0 ? 1 : index + 1;
+  };
+
+  const moveLayerOrder = (id: string, direction: "up" | "down") => {
+    setLayerOrder((current) => {
+      const next = [...current];
+      const from = next.indexOf(id);
+      const to = direction === "up" ? from + 1 : from - 1;
+      if (from < 0 || to < 0 || to >= next.length) return current;
+      const fromItem = next[from];
+      const toItem = next[to];
+      if (!fromItem || !toItem) return current;
+      next[from] = toItem;
+      next[to] = fromItem;
+      return next;
+    });
+  };
+
+  const registerLayerOrder = (id: string) => {
+    setLayerOrder((current) => current.includes(id) ? current : [...current, id]);
+  };
+
+  const getLayerLabel = (id: string) => {
+    if (id === "background") return "Image / fond";
+    if (id === "overlay") return "Voile sombre";
+    if (id === "logo") return "Logo Qahwa";
+    if (id.startsWith("text:")) {
+      const field = id.slice(5) as TextElement;
+      return field === "title" ? "Titre" : field === "subtitle" ? "Sous-titre"
+        : field === "description" ? "Description" : field === "price" ? "Prix" : "Date";
+    }
+    const layer = customLayers.find((item) => item.id === id);
+    if (!layer) return "Élément";
+    if (layer.type === "text") return `Texte : ${layer.text || "Sans texte"}`;
+    if (layer.type === "image") return "Image ajoutée";
+    return `Forme : ${layer.shape === "rectangle" ? "Rectangle" : layer.shape === "circle" ? "Cercle" : "Ligne"}`;
+  };
+
+  const addCustomText = () => {
+    const id = `layer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setCustomLayers((layers) => [...layers, { id, type: "text", text: newTextValue.trim() || "Votre texte", x: 8, y: 42 + (layers.length % 4) * 8, width: 72, height: 10, color: "#FFFFFF", opacity: 100, fontFamily: "Inter, Arial, sans-serif", fontSize: 40, fontWeight: 700 }]);
+    registerLayerOrder(id);
+    setSelectedLayerId(id);
+  };
+
+  const addShape = (shape: "rectangle" | "circle" | "line") => {
+    const id = `layer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setCustomLayers((layers) => [...layers, { id, type: "shape", shape, x: 12 + (layers.length % 4) * 5, y: 35 + (layers.length % 5) * 6, width: shape === "line" ? 65 : 34, height: shape === "line" ? 1.2 : 18, color: "#FFFFFF", opacity: 85 }]);
+    registerLayerOrder(id);
+    setSelectedLayerId(id);
+  };
+
+  const handleExtraImagesChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/"));
+    files.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result !== "string") return;
+        const id = `layer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        setCustomLayers((layers) => [...layers, { id, type: "image", src: reader.result as string, x: 12 + (index % 4) * 5, y: 25 + (index % 5) * 7, width: 36, height: 25, color: "#FFFFFF", opacity: 100 }]);
+        registerLayerOrder(id);
+        setSelectedLayerId(id);
+      };
+      reader.readAsDataURL(file);
+    });
+    event.target.value = "";
+  };
+
+  const handleCustomLayerPointerDown = (event: React.PointerEvent<HTMLElement>, layer: CustomLayer) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedLayerId(layer.id);
+    const parent = canvasRef.current;
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startLayerX = layer.x;
+    const startLayerY = layer.y;
+    const move = (moveEvent: PointerEvent) => {
+      const x = Math.max(0, Math.min(100 - layer.width, startLayerX + ((moveEvent.clientX - startX) / rect.width) * 100));
+      const y = Math.max(0, Math.min(100 - layer.height, startLayerY + ((moveEvent.clientY - startY) / rect.height) * 100));
+      updateCustomLayer(layer.id, { x, y });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
 
 
 
@@ -331,6 +522,7 @@ export default function StudioEditorPage() {
   const [selectedElement, setSelectedElement] =
 
     useState<TextElement>("title");
+  const [activeCanvasText, setActiveCanvasText] = useState<TextElement | null>(null);
 
 
 
@@ -367,6 +559,57 @@ export default function StudioEditorPage() {
     date: "Samedi 12 octobre",
 
   });
+
+  // Chaque création choisie dans la bibliothèque charge une mise en page prête à modifier.
+  useEffect(() => {
+    const designId = new URLSearchParams(window.location.search).get("design");
+    if (!designId) return;
+
+    const variant = designId.endsWith("-editorial") ? "editorial" : designId.endsWith("-bold") ? "bold" : "premium";
+    const isProduct = slug === "nouveau-produit";
+    const isPromotion = slug === "promotion";
+    const isEvent = slug === "evenement";
+
+    const title = isProduct ? "NOUVELLE CRÉATION" : isPromotion ? "OFFRE SPÉCIALE" : isEvent ? "RENDEZ-VOUS QAHWA" : "L'ART DU CAFÉ";
+    const subtitle = isProduct ? "À découvrir chez Qahwa" : isPromotion ? "Une offre à ne pas manquer" : isEvent ? "Un moment à partager" : "Une pause qui vous ressemble";
+    const description = isProduct ? "Une recette généreuse, préparée avec soin." : isPromotion ? "Profitez de notre sélection du moment." : isEvent ? "Rejoignez-nous pour une expérience unique." : "Des saveurs soigneusement choisies, chaque jour.";
+    const theme = variant === "editorial"
+      ? { background: "linear-gradient(145deg, #18231f 0%, #0c1210 100%)", color: "#FFFFFF", family: "Playfair Display", align: "center" as TextAlign, titleSize: 62 }
+      : variant === "bold"
+        ? { background: "linear-gradient(155deg, #3a2524 0%, #151111 70%, #090909 100%)", color: "#FFFFFF", family: "Bebas Neue", align: "left" as TextAlign, titleSize: 78 }
+        : { background: "linear-gradient(135deg, #242424 0%, #090909 72%)", color: "#FFFFFF", family: "Montserrat", align: "left" as TextAlign, titleSize: 56 };
+
+    setCanvasBackground(theme.background);
+    setHeroImage(null);
+    setText({
+      title,
+      subtitle,
+      description,
+      price: isPromotion ? "-20%" : isProduct ? "850 DA" : "À PARTIR DE 500 DA",
+      date: "SAMEDI · 10H — 18H",
+    });
+    setTextStyles({
+      title: { fontFamily: theme.family, fontSize: theme.titleSize, fontWeight: 800, textAlign: theme.align, color: theme.color },
+      subtitle: { fontFamily: variant === "editorial" ? "Playfair Display" : "Inter", fontSize: variant === "bold" ? 22 : 19, fontWeight: 600, textAlign: theme.align, color: theme.color },
+      description: { fontFamily: variant === "editorial" ? "Lato" : "Inter", fontSize: 16, fontWeight: 400, textAlign: theme.align, color: theme.color },
+      price: { fontFamily: variant === "bold" ? "Bebas Neue" : "Montserrat", fontSize: variant === "bold" ? 52 : 34, fontWeight: 800, textAlign: theme.align, color: theme.color },
+      date: { fontFamily: "Inter", fontSize: 16, fontWeight: 600, textAlign: theme.align, color: theme.color },
+    });
+    setTextPositions(variant === "editorial"
+      ? { subtitle: { x: 8, y: 48 }, title: { x: 8, y: 55 }, description: { x: 12, y: 69 }, price: { x: 8, y: 80 }, date: { x: 8, y: 89 } }
+      : variant === "bold"
+        ? { subtitle: { x: 7, y: 48 }, title: { x: 7, y: 55 }, description: { x: 7, y: 70 }, price: { x: 7, y: 81 }, date: { x: 7, y: 91 } }
+        : { subtitle: { x: 8, y: 55 }, title: { x: 8, y: 61 }, description: { x: 8, y: 73 }, price: { x: 8, y: 83 }, date: { x: 8, y: 91 } });
+
+    const decorations: CustomLayer[] = variant === "editorial"
+      ? [{ id: "template-deco-line", type: "shape", shape: "line", x: 18, y: 43, width: 64, height: 0.5, color: "#FFFFFF", opacity: 75 }]
+      : variant === "bold"
+        ? [{ id: "template-deco-block", type: "shape", shape: "rectangle", x: 7, y: 43, width: 22, height: 1.2, color: "#FFFFFF", opacity: 95 }]
+        : [{ id: "template-deco-circle", type: "shape", shape: "circle", x: 78, y: 8, width: 15, height: 12, color: "#FFFFFF", opacity: 12 }];
+    setCustomLayers(decorations);
+    setSelectedLayerId(null);
+    setLayerOrder(["background", "overlay", "logo", ...decorations.map((layer) => layer.id), "text:subtitle", "text:title", "text:description", "text:price", "text:date"]);
+  }, []);
 
 
 
@@ -547,6 +790,7 @@ export default function StudioEditorPage() {
 
 
     setSelectedElement(element);
+    setActiveCanvasText(element);
 
 
 
@@ -707,6 +951,7 @@ export default function StudioEditorPage() {
     const commonStyle = {
 
       position: "absolute" as const,
+      zIndex: getLayerZ(`text:${element}`),
 
       left: `${position.x}%`,
 
@@ -758,11 +1003,11 @@ export default function StudioEditorPage() {
 
         style={commonStyle}
 
-        className={`z-20 cursor-move select-none whitespace-pre-wrap ${
+        className={`cursor-move select-none whitespace-pre-wrap ${
 
           isSelected
 
-            ? "rounded border border-dashed border-[#FF6B00] px-2 py-1"
+            ? "rounded border border-dashed border-[#FFFFFF] px-2 py-1"
 
             : ""
 
@@ -794,12 +1039,9 @@ export default function StudioEditorPage() {
 
    */
 
-  
-const handleDownload = async () => {
-  if (!canvasRef.current) return;
+  const handleDownload = async () => {
 
-  await document.fonts.ready;
-
+    if (!canvasRef.current) return;
 
 
 
@@ -1541,6 +1783,41 @@ const handleDownload = async () => {
 
      */
 
+    // Dessiner les éléments ajoutés par l'utilisateur dans l'image exportée.
+    for (const layer of customLayers) {
+      const x = (layer.x / 100) * width;
+      const y = (layer.y / 100) * height;
+      const layerWidth = (layer.width / 100) * width;
+      const layerHeight = (layer.height / 100) * height;
+      ctx.save();
+      ctx.globalAlpha = layer.opacity / 100;
+      if (layer.type === "text") {
+        ctx.fillStyle = layer.color;
+        ctx.font = `${layer.fontWeight ?? 700} ${layer.fontSize ?? Math.max(20, width * 0.036)}px ${layer.fontFamily ?? "Arial"}`;
+        const lines = (layer.text || "").split("\n");
+        lines.forEach((line, lineIndex) => ctx.fillText(line, x, y + lineIndex * Math.max(24, width * 0.042), layerWidth));
+      } else if (layer.type === "image" && layer.src) {
+        try {
+          const image = await loadImage(layer.src);
+          const scale = Math.min(layerWidth / image.naturalWidth, layerHeight / image.naturalHeight);
+          const drawWidth = image.naturalWidth * scale;
+          const drawHeight = image.naturalHeight * scale;
+          ctx.drawImage(image, x, y, drawWidth, drawHeight);
+        } catch {}
+      } else if (layer.type === "shape") {
+        ctx.fillStyle = layer.color;
+        const shapeHeight = layer.shape === "line" ? Math.max(3, layerHeight) : layerHeight;
+        if (layer.shape === "circle") {
+          ctx.beginPath();
+          ctx.ellipse(x + layerWidth / 2, y + shapeHeight / 2, layerWidth / 2, shapeHeight / 2, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillRect(x, y, layerWidth, shapeHeight);
+        }
+      }
+      ctx.restore();
+    }
+
     canvas.toBlob(
 
       (blob) => {
@@ -1701,7 +1978,7 @@ const handleDownload = async () => {
 
             <div className="flex items-center gap-2">
 
-              <span className="h-2 w-2 rounded-full bg-[#FF6B00]" />
+              <span className="h-2 w-2 rounded-full bg-[#FFFFFF]" />
 
 
 
@@ -1757,11 +2034,11 @@ const handleDownload = async () => {
 
             onClick={handleDownload}
 
-            className="rounded-lg bg-[#FF6B00] px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black transition hover:bg-[#ff812b]"
+            className="rounded-lg bg-white px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black transition hover:bg-white/85"
 
           >
 
-            Télécharger
+            Télécharger l’affiche
 
           </button>
 
@@ -1777,25 +2054,19 @@ const handleDownload = async () => {
 
         {/* CANVAS */}
 
-        <main className="flex min-w-0 flex-1 items-center justify-center overflow-auto bg-[#090909] p-3 sm:p-6 lg:p-8">
-
-          <div
-
-            className="flex min-h-full w-full items-center justify-center"
-
-            style={{
-
-              backgroundImage:
-
-                "linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)",
-
-              backgroundSize:
-
-                "24px 24px",
-
-            }}
-
-          >
+        <main className="flex min-w-0 flex-1 flex-col items-center justify-center overflow-auto bg-[#090909] p-3 sm:p-6 lg:p-8">
+          <div className="mb-3 flex w-full max-w-[520px] items-center gap-2 rounded-lg border border-white/10 bg-[#141414] px-3 py-2 text-[11px] text-white/55">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/15 font-bold text-[#FFFFFF]">i</span>
+            Clique sur un texte ou un élément, puis fais-le glisser pour le déplacer.
+          </div>
+          <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+            <div
+              className="flex min-h-full w-full items-center justify-center"
+              style={{
+                backgroundImage: "linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)",
+                backgroundSize: "24px 24px",
+              }}
+            >
 
             <div
 
@@ -1817,13 +2088,13 @@ const handleDownload = async () => {
 
                   alt=""
 
-                  className="absolute inset-0 h-full w-full object-cover"
+                  className="absolute inset-0 h-full w-full object-cover" style={{ zIndex: getLayerZ("background") }}
 
                 />
 
               ) : (
 
-                <div className="absolute inset-0 bg-gradient-to-br from-[#1b1b1b] via-[#111111] to-[#090909]" />
+                <div className="absolute inset-0" style={{ zIndex: getLayerZ("background"), background: canvasBackground }} />
 
               )}
 
@@ -1831,7 +2102,7 @@ const handleDownload = async () => {
 
               {/* OVERLAY */}
 
-              <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/20 to-black/85" />
+              <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/20 to-black/85" style={{ zIndex: getLayerZ("overlay") }} />
 
 
 
@@ -1845,21 +2116,38 @@ const handleDownload = async () => {
 
                   alt=""
 
-                  className={`absolute z-20 object-contain ${logoPositionClass[logoPosition]}`}
-
-                  style={{
-
-                    width: `${(logoSize / 1080) * 100}cqw`,
-
-                    opacity: logoOpacity / 100,
-
-                  }}
+                  className={`absolute object-contain ${logoPositionClass[logoPosition]}`}
+                  style={{ zIndex: getLayerZ("logo"), width: `${(logoSize / 1080) * 100}cqw`, opacity: logoOpacity / 100 }}
 
                 />
 
               )}
 
 
+
+              {/* ÉLÉMENTS AJOUTÉS : textes, images et formes */}
+              {customLayers.map((layer) => {
+                const selected = selectedLayerId === layer.id;
+                const commonStyle: React.CSSProperties = {
+                  position: "absolute",
+                  left: `${layer.x}%`,
+                  top: `${layer.y}%`,
+                  width: `${layer.width}%`,
+                  height: layer.type === "text" ? "auto" : `${layer.height}%`,
+                  opacity: layer.opacity / 100,
+                  zIndex: getLayerZ(layer.id),
+                  cursor: "move",
+                  touchAction: "none",
+                  outline: selected ? "1px dashed #FFFFFF" : "none",
+                };
+                if (layer.type === "text") {
+                  return <div key={layer.id} onPointerDown={(event) => handleCustomLayerPointerDown(event, layer)} style={{ ...commonStyle, color: layer.color, fontFamily: layer.fontFamily ?? "Arial", fontSize: `${((layer.fontSize ?? 40) / 1080) * 100}cqw`, fontWeight: layer.fontWeight ?? 700, lineHeight: 1.15, whiteSpace: "pre-wrap" }}>{layer.text}</div>;
+                }
+                if (layer.type === "image") {
+                  return <img key={layer.id} src={layer.src} alt="Image ajoutée" onPointerDown={(event) => handleCustomLayerPointerDown(event, layer)} style={{ ...commonStyle, objectFit: "contain" }} />;
+                }
+                return <div key={layer.id} aria-label={`Forme ${layer.shape}`} onPointerDown={(event) => handleCustomLayerPointerDown(event, layer)} style={{ ...commonStyle, backgroundColor: layer.shape === "line" ? layer.color : layer.color, borderRadius: layer.shape === "circle" ? "9999px" : layer.shape === "line" ? "9999px" : "2px", height: `${layer.height}%`, minHeight: layer.shape === "line" ? "2px" : undefined }} />;
+              })}
 
               {/* TEXTES */}
 
@@ -1913,6 +2201,101 @@ const handleDownload = async () => {
 
 
 
+              {/* BARRE D’OUTILS CONTEXTUELLE — édition rapide façon Canva */}
+              {selectedLayer && (
+                <div
+                  className="absolute bottom-3 left-3 right-3 z-[2147483000] max-h-[62%] overflow-y-auto rounded-2xl border border-white/70 bg-white/65 p-3 text-black shadow-[0_12px_40px_rgba(0,0,0,0.22)] backdrop-blur-2xl supports-[backdrop-filter]:bg-white/55 sm:left-1/2 sm:right-auto sm:w-[min(520px,calc(100%-24px))] sm:-translate-x-1/2"
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
+                  <div className="mb-3 flex items-center gap-3 border-b border-black/10 pb-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-black text-white">
+                      <span className="text-base">{selectedLayer.type === "text" ? "T" : selectedLayer.type === "image" ? "▧" : "◇"}</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold tracking-tight">{getLayerLabel(selectedLayer.id)}</p>
+                      <p className="mt-0.5 text-[10px] text-black/50">Sélectionné · modifie directement ton élément</p>
+                    </div>
+                    <button type="button" onClick={() => { const layer = selectedLayer; const id = `layer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; const copy = { ...layer, id, x: Math.min(100 - layer.width, layer.x + 3), y: Math.min(100 - layer.height, layer.y + 3) }; setCustomLayers((layers) => [...layers, copy]); setLayerOrder((order) => [...order, id]); setSelectedLayerId(id); }} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] font-semibold transition hover:bg-black/5" title="Dupliquer cet élément">⧉ Dupliquer</button>
+                    <button type="button" onClick={() => setSelectedLayerId(null)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/5 text-sm transition hover:bg-black/10" aria-label="Fermer les outils">✕</button>
+                  </div>
+
+                  {selectedLayer.type === "text" && (
+                    <div className="mb-3">
+                      <label className="mb-1.5 block text-[9px] font-bold uppercase tracking-[0.14em] text-black/50">Contenu du texte</label>
+                      <textarea rows={2} aria-label="Contenu du texte" value={selectedLayer.text ?? ""} onChange={(event) => updateCustomLayer(selectedLayer.id, { text: event.target.value })} className="w-full resize-y rounded-xl border border-black/10 bg-[#F7F7F7] px-3 py-2.5 text-xs text-black outline-none transition focus:border-black focus:bg-white" />
+                    </div>
+                  )}
+
+                  <div className="mb-3 grid grid-cols-2 gap-2">
+                    {selectedLayer.type !== "image" && (
+                      <label className="flex items-center justify-between gap-2 rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">
+                        Couleur <input aria-label="Couleur" type="color" value={selectedLayer.color} onChange={(event) => updateCustomLayer(selectedLayer.id, { color: event.target.value })} className="h-7 w-9 cursor-pointer rounded-md border border-black/10 bg-white p-0.5" />
+                      </label>
+                    )}
+                    <label className="rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">Opacité <span className="float-right tabular-nums text-black/55">{selectedLayer.opacity}%</span>
+                      <input aria-label="Opacité" type="range" min="0" max="100" value={selectedLayer.opacity} onChange={(event) => updateCustomLayer(selectedLayer.id, { opacity: Number(event.target.value) })} className="mt-2 w-full accent-black" />
+                    </label>
+                    <label className="rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">Largeur <span className="float-right tabular-nums text-black/55">{Math.round(selectedLayer.width)}%</span>
+                      <input aria-label="Largeur" type="range" min="1" max="100" value={selectedLayer.width} onChange={(event) => updateCustomLayer(selectedLayer.id, { width: Number(event.target.value), x: Math.min(selectedLayer.x, 100 - Number(event.target.value)) })} className="mt-2 w-full accent-black" />
+                    </label>
+                    {selectedLayer.type !== "text" && (
+                      <label className="rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">Hauteur <span className="float-right tabular-nums text-black/55">{Math.round(selectedLayer.height)}%</span>
+                        <input aria-label="Hauteur" type="range" min="1" max="100" value={Math.min(100, Math.max(1, selectedLayer.height))} onChange={(event) => updateCustomLayer(selectedLayer.id, { height: Number(event.target.value), y: Math.min(selectedLayer.y, 100 - Number(event.target.value)) })} className="mt-2 w-full accent-black" />
+                      </label>
+                    )}
+                    {selectedLayer.type === "text" && (
+                      <label className="rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">Taille du texte <span className="float-right tabular-nums text-black/55">{selectedLayer.fontSize ?? 40}px</span>
+                        <input aria-label="Taille du texte" type="range" min="12" max="160" value={selectedLayer.fontSize ?? 40} onChange={(event) => updateCustomLayer(selectedLayer.id, { fontSize: Number(event.target.value) })} className="mt-2 w-full accent-black" />
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="mb-3 rounded-xl bg-[#F7F7F7] p-2.5">
+                    <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.14em] text-black/50">Position rapide</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { x: 0 })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">← Gauche</button>
+                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { x: Math.max(0, (100 - selectedLayer.width) / 2) })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">↔ Centrer</button>
+                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { x: Math.max(0, 100 - selectedLayer.width) })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">Droite →</button>
+                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { y: 0 })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">↑ Haut</button>
+                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { y: Math.max(0, (100 - selectedLayer.height) / 2) })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">↕ Milieu</button>
+                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { y: Math.max(0, 100 - selectedLayer.height) })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">Bas ↓</button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                    <button type="button" onClick={() => moveLayerOrder(selectedLayer.id, "down")} disabled={layerOrder.indexOf(selectedLayer.id) <= 0} className="rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[10px] font-semibold transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-30">↓ Envoyer derrière</button>
+                    <button type="button" onClick={() => moveLayerOrder(selectedLayer.id, "up")} disabled={layerOrder.indexOf(selectedLayer.id) === layerOrder.length - 1} className="rounded-xl bg-black px-3 py-2.5 text-[10px] font-semibold text-white transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-30">↑ Mettre devant</button>
+                    <button type="button" onClick={() => { const id = selectedLayer.id; setCustomLayers((layers) => layers.filter((item) => item.id !== id)); setLayerOrder((order) => order.filter((item) => item !== id)); setSelectedLayerId(null); }} className="rounded-xl border border-red-200 px-3 py-2.5 text-[10px] font-semibold text-red-600 transition hover:bg-red-50" title="Supprimer">✕</button>
+                  </div>
+                </div>
+              )}
+
+              {/* BARRE CONTEXTUELLE POUR LES TEXTES PRÉDÉFINIS */}
+              {!selectedLayer && activeCanvasText && (
+                <div className="absolute bottom-2 left-2 right-2 z-[2147483000] max-h-[55%] overflow-y-auto rounded-xl border border-white/70 bg-white/65 p-3 text-black shadow-[0_12px_40px_rgba(0,0,0,0.22)] backdrop-blur-2xl supports-[backdrop-filter]:bg-white/55" onPointerDown={(event) => event.stopPropagation()}>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-bold">Modifier : {activeCanvasText}</p>
+                      <p className="text-[9px] text-black/55">Outils rapides du texte sélectionné</p>
+                    </div>
+                    <button type="button" onClick={() => setActiveCanvasText(null)} className="rounded-md border border-black/15 px-2 py-1 text-xs text-black hover:bg-black/5" aria-label="Fermer les outils">✕</button>
+                  </div>
+                  <textarea rows={2} aria-label="Contenu du texte sélectionné" value={text[activeCanvasText] ?? ""} onChange={(event) => updateText(activeCanvasText, event.target.value)} className="mb-2 w-full rounded-lg border border-black/15 bg-white px-2 py-2 text-xs text-black outline-none focus:border-black" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="rounded-lg border border-black/10 px-2 py-2 text-[10px]">Couleur
+                      <input type="color" value={textStyles[activeCanvasText].color} onChange={(event) => setTextStyles((current) => ({ ...current, [activeCanvasText]: { ...current[activeCanvasText], color: event.target.value } }))} className="ml-2 h-6 w-8 cursor-pointer border-0 bg-transparent align-middle" />
+                    </label>
+                    <label className="rounded-lg border border-black/10 px-2 py-2 text-[10px]">Taille · {textStyles[activeCanvasText].fontSize}px
+                      <input aria-label="Taille du texte" type="range" min="12" max="160" value={textStyles[activeCanvasText].fontSize} onChange={(event) => setTextStyles((current) => ({ ...current, [activeCanvasText]: { ...current[activeCanvasText], fontSize: Number(event.target.value) } }))} className="mt-1 w-full accent-black" />
+                    </label>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => moveLayerOrder(`text:${activeCanvasText}`, "down")} className="rounded-lg border border-black/15 bg-white px-2 py-2 text-[10px] font-semibold text-black hover:bg-black/5">← Derrière</button>
+                    <button type="button" onClick={() => moveLayerOrder(`text:${activeCanvasText}`, "up")} className="rounded-lg border border-black/15 bg-white px-2 py-2 text-[10px] font-semibold text-black hover:bg-black/5">Devant →</button>
+                  </div>
+                </div>
+              )}
+
               {/* MESSAGE VIDE */}
 
               {!heroImage && (
@@ -1931,6 +2314,8 @@ const handleDownload = async () => {
 
             </div>
 
+            </div>
+
           </div>
 
         </main>
@@ -1939,17 +2324,22 @@ const handleDownload = async () => {
 
         {/* PANNEAU */}
 
-        <aside className="w-full shrink-0 overflow-y-auto border-t border-white/10 bg-[#121212] p-3 sm:p-4 lg:max-h-[calc(100vh-4rem)] lg:w-[380px] lg:border-l lg:border-t-0">
+        <aside className="w-full shrink-0 overflow-y-auto border-t border-white/10 bg-[#101010] p-3 sm:p-4 lg:max-h-[calc(100vh-4rem)] lg:w-[400px] lg:border-l lg:border-t-0">
 
-                    <div className="mb-4 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-[#0D0D0D] p-1">
+          <div className="mb-3 rounded-xl border border-white/10 bg-[#1B1B1B] p-3">
+            <p className="text-xs font-semibold text-white">Crée ton affiche en 3 étapes</p>
+            <p className="mt-1 text-[11px] leading-5 text-white/55">1. Choisis un outil. 2. Clique sur un élément pour le modifier ou fais-le glisser pour le déplacer. 3. Clique sur « Télécharger ».</p>
+          </div>
+
+          <div className="mb-3 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-[#090909] p-1">
 
             {[
 
               { id: "texte", label: "Texte", icon: "T" },
 
-              { id: "images", label: "Images", icon: "▧" },
+              { id: "images", label: "Photos", icon: "▧" },
 
-              { id: "formes", label: "Formes", icon: "◇" },
+              { id: "formes", label: "Éléments", icon: "◇" },
 
               { id: "format", label: "Format", icon: "□" },
 
@@ -1971,14 +2361,10 @@ const handleDownload = async () => {
 
                 }
 
-                className={`flex flex-col items-center gap-1 rounded-lg px-1 py-3 text-[10px] transition ${
-
+                className={`flex min-h-[66px] flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-[10px] transition ${
                   activeTab === tab.id
-
-                    ? "bg-[#FF6B00]/15 text-[#FF6B00]"
-
-                    : "text-white/45 hover:bg-white/5 hover:text-white"
-
+                    ? "border-[#FFFFFF]/40 bg-[#FFFFFF]/10 text-[#FFFFFF]"
+                    : "border-transparent text-white/45 hover:border-white/10 hover:bg-white/5 hover:text-white"
                 }`}
 
               >
@@ -1995,6 +2381,7 @@ const handleDownload = async () => {
 
 
 
+
           <div className="space-y-3">
 
 
@@ -2005,7 +2392,7 @@ const handleDownload = async () => {
 
             <details
 
-              className="overflow-hidden rounded-xl border border-[#2E2E2E] bg-[#1B1B1B]"
+              className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]"
 
               open
 
@@ -2015,7 +2402,7 @@ const handleDownload = async () => {
 
                 <div className="flex items-center justify-between">
 
-                  <span>CONTENU</span>
+                  <span>Modifier les textes de l’affiche</span>
 
                   <span className="text-white/35">
 
@@ -2099,7 +2486,7 @@ const handleDownload = async () => {
 
                         }
 
-                        className="w-full resize-none rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none transition placeholder:text-white/20 focus:border-[#FF6B00]"
+                        className="w-full resize-none rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none transition placeholder:text-white/20 focus:border-[#FFFFFF]"
 
                       />
 
@@ -2115,162 +2502,301 @@ const handleDownload = async () => {
 
 
 
-           ```tsx
-{/* ================= POLICE ================= */}
-<details
-  className="overflow-hidden rounded-xl border border-[#2E2E2E] bg-[#1B1B1B]"
->
-  <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
-    <div className="flex items-center justify-between">
-      <span>POLICE</span>
-      <span className="text-white/35">+</span>
-    </div>
-  </summary>
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white"><div className="flex items-center justify-between"><span>Ajouter un texte libre</span><span className="text-white/35">+</span></div></summary>
+              <div className="space-y-3 border-t border-white/5 px-4 pb-4 pt-4">
+                <input value={newTextValue} onChange={(event) => setNewTextValue(event.target.value)} placeholder="Écris ton texte" className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none focus:border-[#FFFFFF]" />
+                <button type="button" onClick={addCustomText} className="w-full rounded-lg bg-white px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-black hover:bg-white/85">+ Ajouter ce texte</button>
+              </div>
+            </details>
 
-  <div className="space-y-4 border-t border-white/5 px-4 pb-4 pt-4">
-    {/* ÉLÉMENT */}
-    <div>
-      <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-        Élément
-      </label>
+            {/* ================= POLICE ================= */}
 
-      
-<StudioSelect
-  value={logoPosition}
-  ariaLabel="Position du logo"
-  options={[
-    { value: "top-left", label: "Haut gauche" },
-    { value: "top-center", label: "Haut centre" },
-    { value: "top-right", label: "Haut droite" },
-    { value: "bottom-left", label: "Bas gauche" },
-    { value: "bottom-center", label: "Bas centre" },
-    { value: "bottom-right", label: "Bas droite" },
-  ]}
-  onChange={(value) =>
-    setLogoPosition(value as LogoPosition)
-  }
-/>
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
 
-    </div>
+              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
-    {/* FAMILLE DE POLICE */}
-    <div>
-      <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-        Famille
-      </label>
+                <div className="flex items-center justify-between">
 
-      <StudioSelect
-        value={selectedStyle.fontFamily}
-        ariaLabel="Famille de police"
-        options={[
-          {
-            value: "var(--font-display)",
-            label: "Archivo Black — Titres",
-          },
-          {
-            value: "var(--font-body)",
-            label: "Inter — Texte",
-          },
-          {
-            value: "var(--font-script)",
-            label: "Playfair Display — Élégant",
-          },
-        ]}
-        onChange={(value) =>
-          updateSelectedStyle({ fontFamily: value })
-        }
-      />
-    </div>
+                  <span>Style du texte</span>
 
-    {/* TAILLE */}
-    <div>
-      <div className="mb-2 flex items-center justify-between">
-        <label className="text-[9px] uppercase tracking-[0.14em] text-white/40">
-          Taille
-        </label>
+                  <span className="text-white/35">
 
-        <span className="text-[10px] text-white/50">
-          {selectedStyle.fontSize} px
-        </span>
-      </div>
+                    +
 
-      <input
-        type="range"
-        min="10"
-        max="100"
-        value={selectedStyle.fontSize}
-        onChange={(event) =>
-          updateSelectedStyle({
-            fontSize: Number(event.target.value),
-          })
-        }
-        className="w-full accent-[#FF6B00]"
-      />
-    </div>
+                  </span>
 
-    {/* ÉPAISSEUR */}
-    <div>
-      <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-        Épaisseur
-      </label>
+                </div>
 
-      <StudioSelect
-        value={selectedStyle.fontWeight}
-        ariaLabel="Épaisseur de police"
-        options={[
-          { value: "400", label: "Normal" },
-          { value: "500", label: "Medium" },
-          { value: "600", label: "Semi-bold" },
-          { value: "700", label: "Bold" },
-          { value: "800", label: "Extra-bold" },
-        ]}
-        onChange={(value) =>
-          updateSelectedStyle({
-            fontWeight: Number(value),
-          })
-        }
-      />
-    </div>
+              </summary>
 
-    {/* ALIGNEMENT */}
-    <div>
-      <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-        Alignement
-      </label>
 
-      <div className="grid grid-cols-3 gap-2">
-        {(
-          ["left", "center", "right"] as TextAlign[]
-        ).map((align) => (
-          <button
-            key={align}
-            type="button"
-            onClick={() =>
-              updateSelectedStyle({ textAlign: align })
-            }
-            className={`rounded-lg border px-3 py-2 text-[9px] uppercase ${
-              selectedStyle.textAlign === align
-                ? "border-[#FF6B00] bg-[#FF6B00]/10 text-[#FF6B00]"
-                : "border-white/10 bg-[#101010] text-white/50 hover:border-[#FF6B00]/50 hover:text-white"
-            }`}
-          >
-            {align === "left"
-              ? "Gauche"
-              : align === "center"
-                ? "Centre"
-                : "Droite"}
-          </button>
-        ))}
-      </div>
-    </div>
-  </div>
-</details>
-```
+
+              <div className="space-y-4 border-t border-white/5 px-4 pb-4 pt-4">
+
+                <div>
+
+                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
+
+                    Élément
+
+                  </label>
+
+
+
+                  <StudioDarkSelect
+                    value={selectedElement}
+                    onChange={(value) => setSelectedElement(value as TextElement)}
+                    options={data.fields.map((field) => ({
+                      value: field,
+                      label:
+                        field === "title" ? "Titre"
+                        : field === "subtitle" ? "Sous-titre"
+                        : field === "description" ? "Description"
+                        : field === "price" ? "Prix"
+                        : "Date",
+                    }))}
+                  />
+
+                </div>
+
+
+
+                <div>
+
+                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
+
+                    Famille
+
+                  </label>
+
+
+
+                  <StudioDarkSelect
+                    value={selectedStyle.fontFamily}
+                    onChange={(value) => updateSelectedStyle({ fontFamily: value })}
+                    options={[
+                      { label: "Arial", value: "Arial" },
+                      { label: "Arial Black", value: "Arial Black" },
+                      { label: "Helvetica", value: "Helvetica" },
+                      { label: "Verdana", value: "Verdana" },
+                      { label: "Tahoma", value: "Tahoma" },
+                      { label: "Trebuchet MS", value: "Trebuchet MS" },
+                      { label: "Georgia", value: "Georgia" },
+                      { label: "Times New Roman", value: "Times New Roman" },
+                      { label: "Garamond", value: "Garamond" },
+                      { label: "Palatino Linotype", value: "Palatino Linotype" },
+                      { label: "Courier New", value: "Courier New" },
+                      { label: "Lucida Sans", value: "Lucida Sans" },
+                      { label: "Impact", value: "Impact" },
+                      { label: "Comic Sans MS", value: "Comic Sans MS" },
+                      { label: "Inter", value: "Inter, Arial, sans-serif" },
+                      { label: "Roboto", value: "Roboto, Arial, sans-serif" },
+                      { label: "Montserrat", value: "Montserrat, Arial, sans-serif" },
+                      { label: "Poppins", value: "Poppins, Arial, sans-serif" },
+                      { label: "Open Sans", value: "Open Sans, Arial, sans-serif" },
+                      { label: "Lato", value: "Lato, Arial, sans-serif" },
+                      { label: "Oswald", value: "Oswald, Arial, sans-serif" },
+                      { label: "Playfair Display", value: "Playfair Display, Georgia, serif" },
+                      { label: "Bebas Neue", value: "Bebas Neue, Impact, sans-serif" },
+                    ]}
+                  />
+
+                </div>
+
+
+
+                <div>
+
+                  <div className="mb-2 flex items-center justify-between">
+
+                    <label className="text-[9px] uppercase tracking-[0.14em] text-white/40">
+
+                      Taille
+
+                    </label>
+
+
+
+                    <span className="text-[10px] text-white/50">
+
+                      {
+
+                        selectedStyle.fontSize
+
+                      }{" "}
+
+                      px
+
+                    </span>
+
+                  </div>
+
+
+
+                  <input
+
+                    type="range"
+
+                    min="10"
+
+                    max="100"
+
+                    value={
+
+                      selectedStyle.fontSize
+
+                    }
+
+                    onChange={(event) =>
+
+                      updateSelectedStyle({
+
+                        fontSize:
+
+                          Number(
+
+                            event.target
+
+                              .value
+
+                          ),
+
+                      })
+
+                    }
+
+                    className="w-full accent-[#FFFFFF]"
+
+                  />
+
+                </div>
+
+
+
+                <div>
+
+                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
+
+                    Épaisseur
+
+                  </label>
+
+
+
+                  <StudioDarkSelect
+                    value={String(selectedStyle.fontWeight)}
+                    onChange={(value) => updateSelectedStyle({ fontWeight: Number(value) })}
+                    options={[
+                      { label: "Normal", value: "400" },
+                      { label: "Medium", value: "500" },
+                      { label: "Semi-bold", value: "600" },
+                      { label: "Bold", value: "700" },
+                      { label: "Extra-bold", value: "800" },
+                    ]}
+                  />
+
+                </div>
+
+
+
+                <div>
+
+                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
+
+                    Alignement
+
+                  </label>
+
+
+
+                  <div className="grid grid-cols-3 gap-2">
+
+                    {(
+
+                      [
+
+                        "left",
+
+                        "center",
+
+                        "right",
+
+                      ] as TextAlign[]
+
+                    ).map(
+
+                      (align) => (
+
+                        <button
+
+                          key={align}
+
+                          type="button"
+
+                          onClick={() =>
+
+                            updateSelectedStyle(
+
+                              {
+
+                                textAlign:
+
+                                  align,
+
+                              }
+
+                            )
+
+                          }
+
+                          className={`rounded-lg border px-3 py-2 text-[9px] uppercase ${
+
+                            selectedStyle.textAlign ===
+
+                            align
+
+                              ? "border-[#FFFFFF] bg-[#FFFFFF]/10 text-[#FFFFFF]"
+
+                              : "border-white/10 bg-[#101010] text-white/50"
+
+                          }`}
+
+                        >
+
+                          {align ===
+
+                          "left"
+
+                            ? "Gauche"
+
+                            : align ===
+
+                                "center"
+
+                              ? "Centre"
+
+                              : "Droite"}
+
+                        </button>
+
+                      )
+
+                    )}
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </details>
+
 
 
             {/* ================= POSITION ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-[#2E2E2E] bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -2350,7 +2876,7 @@ const handleDownload = async () => {
 
                     }
 
-                    className="w-full accent-[#FF6B00]"
+                    className="w-full accent-[#FFFFFF]"
 
                   />
 
@@ -2416,7 +2942,7 @@ const handleDownload = async () => {
 
                     }
 
-                    className="w-full accent-[#FF6B00]"
+                    className="w-full accent-[#FFFFFF]"
 
                   />
 
@@ -2434,7 +2960,7 @@ const handleDownload = async () => {
 
                   }
 
-                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/55 transition hover:border-[#FF6B00] hover:text-[#FF6B00]"
+                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/55 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]"
 
                 >
 
@@ -2450,7 +2976,7 @@ const handleDownload = async () => {
 
             {/* ================= COULEUR ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-[#2E2E2E] bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -2538,7 +3064,7 @@ const handleDownload = async () => {
 
                     "#000000",
 
-                    "#FF6B00",
+                    "#FFFFFF",
 
                     "#FFF3E8",
 
@@ -2601,7 +3127,7 @@ const handleDownload = async () => {
               <>
             {/* ================= HERO ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-[#2E2E2E] bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -2653,7 +3179,7 @@ const handleDownload = async () => {
 
                   }
 
-                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/60 transition hover:border-[#FF6B00] hover:text-[#FF6B00]"
+                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/60 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]"
 
                 >
 
@@ -2715,9 +3241,19 @@ const handleDownload = async () => {
 
 
 
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]" open>
+              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white"><div className="flex items-center justify-between"><span>IMAGES SUPPLÉMENTAIRES</span><span className="text-white/35">+</span></div></summary>
+              <div className="space-y-3 border-t border-white/5 px-4 pb-4 pt-4">
+                <input ref={extraImagesInputRef} type="file" accept="image/*" multiple onChange={handleExtraImagesChange} className="hidden" />
+                <button type="button" onClick={() => extraImagesInputRef.current?.click()} className="w-full rounded-lg bg-white px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-black hover:bg-white/85">+ Ajouter une ou plusieurs images</button>
+                <p className="text-[10px] leading-4 text-white/40">Chaque image ajoutée apparaît sur l’affiche. Déplace-la directement avec la souris ou le doigt.</p>
+                {customLayers.filter((layer) => layer.type === "image").map((layer, index) => <div key={layer.id} className={`flex items-center gap-2 rounded-lg border p-2 ${selectedLayerId === layer.id ? "border-[#FFFFFF]" : "border-white/10"}`}><button type="button" onClick={() => setSelectedLayerId(layer.id)} className="min-w-0 flex-1 truncate text-left text-xs text-white">Image supplémentaire {index + 1}</button><button type="button" onClick={() => { setCustomLayers((layers) => layers.filter((item) => item.id !== layer.id)); setLayerOrder((order) => order.filter((id) => id !== layer.id)); if (selectedLayerId === layer.id) setSelectedLayerId(null); }} className="rounded px-2 py-1 text-xs text-white/50 hover:bg-white/10 hover:text-white">Supprimer</button></div>)}
+              </div>
+            </details>
+
             {/* ================= LOGO ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-[#2E2E2E] bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -2769,7 +3305,7 @@ const handleDownload = async () => {
 
                   }
 
-                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/60 transition hover:border-[#FF6B00] hover:text-[#FF6B00]"
+                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/60 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]"
 
                 >
 
@@ -2849,7 +3385,7 @@ const handleDownload = async () => {
 
                     }
 
-                    className="w-full accent-[#FF6B00]"
+                    className="w-full accent-[#FFFFFF]"
 
                   />
 
@@ -2883,7 +3419,7 @@ const handleDownload = async () => {
 
                     onChange={(event) => setLogoOpacity(Number(event.target.value))}
 
-                    className="w-full accent-[#FF6B00]"
+                    className="w-full accent-[#FFFFFF]"
 
                   />
 
@@ -2917,11 +3453,11 @@ const handleDownload = async () => {
 
                     }
 
-                    className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none focus:border-[#FF6B00]"
+                    className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white [color-scheme:dark] accent-[#FFFFFF] outline-none focus:border-[#FFFFFF]"
 
                   >
 
-                    <option value="top-left">
+                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="top-left">
 
                       Haut gauche
 
@@ -2929,7 +3465,7 @@ const handleDownload = async () => {
 
 
 
-                    <option value="top-center">
+                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="top-center">
 
                       Haut centre
 
@@ -2937,7 +3473,7 @@ const handleDownload = async () => {
 
 
 
-                    <option value="top-right">
+                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="top-right">
 
                       Haut droite
 
@@ -2945,7 +3481,7 @@ const handleDownload = async () => {
 
 
 
-                    <option value="bottom-left">
+                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="bottom-left">
 
                       Bas gauche
 
@@ -2953,7 +3489,7 @@ const handleDownload = async () => {
 
 
 
-                    <option value="bottom-center">
+                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="bottom-center">
 
                       Bas centre
 
@@ -2961,7 +3497,7 @@ const handleDownload = async () => {
 
 
 
-                    <option value="bottom-right">
+                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="bottom-right">
 
                       Bas droite
 
@@ -2984,7 +3520,7 @@ const handleDownload = async () => {
               <>
             {/* ================= FORMAT ================= */}
 
-            <details className="overflow-hidden rounded-xl border border-[#2E2E2E] bg-[#1B1B1B]">
+            <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
 
               <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
 
@@ -3101,15 +3637,111 @@ const handleDownload = async () => {
             )}
 
             {activeTab === "formes" && (
-              <div className="rounded-xl border border-white/10 bg-[#1B1B1B] p-4">
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="text-lg text-[#FF6B00]">◇</span>
-                  <h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Formes</h2>
+              <div className="space-y-3">
+                <details className="overflow-hidden rounded-xl border border-white/10 bg-[#1B1B1B]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 text-xs font-semibold text-white">
+                    <span>Options avancées : avant / arrière</span>
+                    <span className="text-[10px] font-normal text-white/40">Calques +</span>
+                  </summary>
+                  <div className="border-t border-white/5 p-4">
+                    <p className="mb-3 text-[10px] leading-4 text-white/45">Pour faire passer un élément devant ou derrière un autre, ouvre cette section.</p>
+                  <div className="space-y-1.5">
+                    {[...layerOrder].reverse().map((id) => {
+                      const index = layerOrder.indexOf(id);
+                      const isCustom = customLayers.some((layer) => layer.id === id);
+                      const isText = id.startsWith("text:");
+                      const available = id === "background" || id === "overlay" ||
+                        (id === "logo" && !!logoImage) ||
+                        (isText && data.fields.includes(id.slice(5) as TextElement)) || isCustom;
+                      if (!available) return null;
+                      return (
+                        <div key={id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#101010] p-2">
+                          <span className="w-5 shrink-0 text-center text-[9px] text-white/35">{index + 1}</span>
+                          <span className="min-w-0 flex-1 truncate text-[10px] text-white/80">{getLayerLabel(id)}</span>
+                          <button type="button" aria-label={`Envoyer ${getLayerLabel(id)} derrière`} onClick={() => moveLayerOrder(id, "down")} disabled={index === 0} className="rounded border border-white/10 px-2 py-1 text-[10px] text-white/70 hover:border-[#FFFFFF] hover:text-[#FFFFFF] disabled:opacity-25">↓</button>
+                          <button type="button" aria-label={`Amener ${getLayerLabel(id)} devant`} onClick={() => moveLayerOrder(id, "up")} disabled={index === layerOrder.length - 1} className="rounded border border-white/10 px-2 py-1 text-[10px] text-white/70 hover:border-[#FFFFFF] hover:text-[#FFFFFF] disabled:opacity-25">↑</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  </div>
+                </details>
+                <div className="rounded-xl border border-white/10 bg-[#1B1B1B] p-4">
+                  <div className="mb-3 flex items-center gap-2"><span className="text-lg text-[#FFFFFF]">◇</span><h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Ajouter une forme</h2></div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button type="button" onClick={() => addShape("rectangle")} className="rounded-lg border border-white/10 bg-[#101010] px-2 py-3 text-[10px] text-white/80 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]">▰ Rectangle</button>
+                    <button type="button" onClick={() => addShape("circle")} className="rounded-lg border border-white/10 bg-[#101010] px-2 py-3 text-[10px] text-white/80 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]">● Cercle</button>
+                    <button type="button" onClick={() => addShape("line")} className="rounded-lg border border-white/10 bg-[#101010] px-2 py-3 text-[10px] text-white/80 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]">━ Ligne</button>
+                  </div>
+                  <p className="mt-3 text-[10px] leading-4 text-white/45">Choisis une forme pour l’ajouter. Clique ensuite dessus dans l’aperçu ou dans la liste pour modifier sa couleur, sa taille, sa position ou sa transparence. Un rectangle peut couvrir toute l’affiche.</p>
                 </div>
-                <p className="text-xs leading-5 text-white/50">
-                  Le panneau des formes sera ajouté dans la prochaine étape.
-                  Tu peux déjà utiliser les onglets Texte, Images et Format.
-                </p>
+                <div className="rounded-xl border border-white/10 bg-[#1B1B1B] p-4">
+                  <div className="mb-3 flex items-center justify-between"><h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Éléments ajoutés</h2><span className="text-[10px] text-white/40">{customLayers.length}</span></div>
+                  {customLayers.length === 0 ? <p className="text-xs text-white/40">Ajoute une forme, une image ou un texte pour commencer.</p> : <div className="space-y-2">{customLayers.map((layer, index) => <div key={layer.id} className={`flex items-center gap-2 rounded-lg border p-2 ${selectedLayerId === layer.id ? "border-[#FFFFFF] bg-[#FFFFFF]/5" : "border-white/10"}`}><button type="button" onClick={() => setSelectedLayerId(layer.id)} className="min-w-0 flex-1 truncate text-left text-xs text-white">{layer.type === "text" ? `Texte : ${layer.text || "Sans texte"}` : layer.type === "image" ? `Image ${index + 1}` : `Forme : ${layer.shape === "rectangle" ? "Rectangle" : layer.shape === "circle" ? "Cercle" : "Ligne"}`}</button><button type="button" onClick={() => setCustomLayers((layers) => layers.filter((item) => item.id !== layer.id))} className="rounded px-2 py-1 text-[10px] text-white/50 hover:bg-white/10 hover:text-white">✕</button></div>)}</div>}
+                </div>
+                {selectedLayer && (
+                  <div className="space-y-4 rounded-xl border border-[#FFFFFF]/40 bg-[#1B1B1B] p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FFFFFF]">Modifier la sélection</h2>
+                      <div className="flex gap-1">
+                        <button type="button" onClick={() => moveLayerOrder(selectedLayer.id, "down")} disabled={layerOrder.indexOf(selectedLayer.id) <= 0} className="rounded-md border border-white/10 bg-[#101010] px-2 py-1.5 text-[9px] text-white/70 hover:border-[#FFFFFF] hover:text-[#FFFFFF] disabled:cursor-not-allowed disabled:opacity-30">← Derrière</button>
+                        <button type="button" onClick={() => moveLayerOrder(selectedLayer.id, "up")} disabled={layerOrder.indexOf(selectedLayer.id) === layerOrder.length - 1} className="rounded-md border border-white/10 bg-[#101010] px-2 py-1.5 text-[9px] text-white/70 hover:border-[#FFFFFF] hover:text-[#FFFFFF] disabled:cursor-not-allowed disabled:opacity-30">Devant →</button>
+                      </div>
+                    </div>
+                    {selectedLayer.type === "text" && <div><label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">Contenu du texte</label><textarea rows={2} value={selectedLayer.text ?? ""} onChange={(event) => updateCustomLayer(selectedLayer.id, { text: event.target.value })} className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2 text-xs text-white outline-none focus:border-[#FFFFFF]" /></div>}
+                    {selectedLayer.type === "text" && <div className="space-y-3 rounded-lg border border-white/10 bg-[#101010] p-3">
+                      <div>
+                        <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">Famille de police</label>
+                        <StudioDarkSelect
+                          value={selectedLayer.fontFamily ?? "Inter, Arial, sans-serif"}
+                          onChange={(value) => updateCustomLayer(selectedLayer.id, { fontFamily: value })}
+                          options={[
+                            { label: "Inter", value: "Inter, Arial, sans-serif" },
+                            { label: "Roboto", value: "Roboto, Arial, sans-serif" },
+                            { label: "Montserrat", value: "Montserrat, Arial, sans-serif" },
+                            { label: "Poppins", value: "Poppins, Arial, sans-serif" },
+                            { label: "Open Sans", value: "Open Sans, Arial, sans-serif" },
+                            { label: "Lato", value: "Lato, Arial, sans-serif" },
+                            { label: "Oswald", value: "Oswald, Arial, sans-serif" },
+                            { label: "Playfair Display", value: "Playfair Display, Georgia, serif" },
+                            { label: "Bebas Neue", value: "Bebas Neue, Impact, sans-serif" },
+                            { label: "Arial", value: "Arial" },
+                            { label: "Georgia", value: "Georgia" },
+                            { label: "Impact", value: "Impact" },
+                          ]}
+                        />
+                      </div>
+                      <div>
+                        <div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Taille du texte</label><span className="text-[10px] text-white/50">{selectedLayer.fontSize ?? 40} px</span></div>
+                        <input type="range" min="12" max="160" value={selectedLayer.fontSize ?? 40} onChange={(event) => updateCustomLayer(selectedLayer.id, { fontSize: Number(event.target.value) })} className="w-full accent-[#FFFFFF]" />
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">Épaisseur du texte</label>
+                        <StudioDarkSelect
+                          value={String(selectedLayer.fontWeight ?? 700)}
+                          onChange={(value) => updateCustomLayer(selectedLayer.id, { fontWeight: Number(value) })}
+                          options={[
+                            { label: "Normal", value: "400" },
+                            { label: "Medium", value: "500" },
+                            { label: "Semi-bold", value: "600" },
+                            { label: "Bold", value: "700" },
+                            { label: "Extra-bold", value: "800" },
+                          ]}
+                        />
+                      </div>
+                    </div>}
+                    {selectedLayer.type !== "image" && <div><label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">Couleur</label><input type="color" value={selectedLayer.color} onChange={(event) => updateCustomLayer(selectedLayer.id, { color: event.target.value })} className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-[#101010] p-1" /></div>}
+                    <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Transparence</label><span className="text-[10px] text-white/50">{selectedLayer.opacity}%</span></div><input type="range" min="10" max="100" value={selectedLayer.opacity} onChange={(event) => updateCustomLayer(selectedLayer.id, { opacity: Number(event.target.value) })} className="w-full accent-[#FFFFFF]" /></div>
+                    <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Largeur</label><span className="text-[10px] text-white/50">{Math.round(selectedLayer.width)}%</span></div><input type="range" min="1" max="100" value={selectedLayer.width} onChange={(event) => updateCustomLayer(selectedLayer.id, { width: Number(event.target.value), x: Math.min(selectedLayer.x, 100 - Number(event.target.value)) })} className="w-full accent-[#FFFFFF]" /></div>
+                    {selectedLayer.type !== "text" && <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Hauteur</label><span className="text-[10px] text-white/50">{Math.round(selectedLayer.height)}%</span></div><input type="range" min="1" max="100" value={selectedLayer.height} onChange={(event) => updateCustomLayer(selectedLayer.id, { height: Number(event.target.value), y: Math.min(selectedLayer.y, 100 - Number(event.target.value)) })} className="w-full accent-[#FFFFFF]" /></div>}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Position X</label><span className="text-[10px] text-white/50">{Math.round(selectedLayer.x)}%</span></div><input type="range" min="0" max={Math.max(0, 100 - selectedLayer.width)} value={selectedLayer.x} onChange={(event) => updateCustomLayer(selectedLayer.id, { x: Number(event.target.value) })} className="w-full accent-[#FFFFFF]" /></div>
+                      <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Position Y</label><span className="text-[10px] text-white/50">{Math.round(selectedLayer.y)}%</span></div><input type="range" min="0" max={Math.max(0, 100 - selectedLayer.height)} value={selectedLayer.y} onChange={(event) => updateCustomLayer(selectedLayer.id, { y: Number(event.target.value) })} className="w-full accent-[#FFFFFF]" /></div>
+                    </div>
+                    {selectedLayer.type === "shape" && selectedLayer.shape === "rectangle" && <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { x: 0, y: 0, width: 100, height: 100, opacity: selectedLayer.opacity })} className="w-full rounded-lg border border-[#FFFFFF]/40 bg-[#FFFFFF]/10 px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-[#FFFFFF] hover:bg-[#FFFFFF]/20">Étendre sur toute l’affiche</button>}
+                    <button type="button" onClick={() => { setCustomLayers((layers) => layers.filter((item) => item.id !== selectedLayer.id)); setLayerOrder((order) => order.filter((id) => id !== selectedLayer.id)); setSelectedLayerId(null); }} className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-red-300 hover:bg-red-500/20">Supprimer cet élément</button>
+                  </div>
+                )}
               </div>
             )}
 

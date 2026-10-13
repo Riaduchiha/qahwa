@@ -119,6 +119,11 @@ select option {
 select:focus {
   outline: 2px solid #FF6B00;
   outline-offset: 2px;
+}/* Remplace le bleu natif des options par votre orange (#FF6B00) */
+select option:checked,
+select option:hover {
+  background-color: #FF6B00 !important;
+  color: #000000 !important;
 }
 
 
