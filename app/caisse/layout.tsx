@@ -37,7 +37,7 @@ export default async function CaisseLayout({
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/qahwa/login");
+    redirect("/caisse/login");
   }
 
   return (

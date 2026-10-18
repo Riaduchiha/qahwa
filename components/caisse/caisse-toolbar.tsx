@@ -1,9 +1,11 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-// Adresses de tes pages admin. Change-les ici si une adresse est différente.
 const SECTIONS = [
   { key: "stock", label: "Stock", src: "/qahwa/stock" },
   { key: "commandes", label: "Commandes", src: "/qahwa/commandes" },
@@ -13,19 +15,52 @@ const SECTIONS = [
 type SectionKey = (typeof SECTIONS)[number]["key"];
 
 export function CaisseToolbar() {
+  const router = useRouter();
   const [open, setOpen] = useState<SectionKey | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const section = SECTIONS.find((item) => item.key === open) ?? null;
 
   useEffect(() => {
     if (!open) return;
+
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(null);
     };
+
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
+
+  async function closeShift() {
+    if (loggingOut) return;
+
+    const confirmed = window.confirm(
+      "Clôturer le shift et se déconnecter de QAHWA Caisse ?"
+    );
+
+    if (!confirmed) return;
+
+    setLoggingOut(true);
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        window.alert("La déconnexion a échoué. Réessaie.");
+        setLoggingOut(false);
+        return;
+      }
+
+      router.replace("/caisse/login");
+      router.refresh();
+    } catch {
+      window.alert("Impossible de se déconnecter. Réessaie.");
+      setLoggingOut(false);
+    }
+  }
 
   return (
     <>
@@ -33,16 +68,22 @@ export function CaisseToolbar() {
         <div className="flex items-center gap-3">
           <Image
             src="/logo-white.png"
-            alt=""
+            alt="QAHWA"
             width={36}
             height={36}
             priority
             className="h-9 w-9 object-contain"
           />
-          <h1 className="font-display text-3xl uppercase">Qahwa Caisse</h1>
+
+          <h1 className="font-display text-3xl uppercase">
+            Qahwa Caisse
+          </h1>
         </div>
 
-        <nav aria-label="Raccourcis" className="flex flex-wrap gap-2">
+        <nav
+          aria-label="Raccourcis de la caisse"
+          className="flex flex-wrap gap-2"
+        >
           {SECTIONS.map((item) => (
             <button
               key={item.key}
@@ -56,6 +97,15 @@ export function CaisseToolbar() {
               {item.label}
             </button>
           ))}
+
+          <button
+            type="button"
+            onClick={() => void closeShift()}
+            disabled={loggingOut}
+            className="min-h-[44px] rounded-xl border border-qahwa-orange bg-qahwa-orange px-4 font-display text-xs uppercase text-black transition hover:bg-[#ff8126] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qahwa-orange"
+          >
+            {loggingOut ? "Déconnexion..." : "Clôturer le shift"}
+          </button>
         </nav>
       </div>
 
@@ -67,11 +117,14 @@ export function CaisseToolbar() {
           className="fixed inset-0 z-[80] flex flex-col bg-qahwa-bg"
         >
           <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-qahwa-border bg-qahwa-panel px-4">
-            <h2 className="font-display text-lg uppercase text-qahwa-text">{section.label}</h2>
+            <h2 className="font-display text-lg uppercase text-qahwa-text">
+              {section.label}
+            </h2>
+
             <button
               type="button"
               onClick={() => setOpen(null)}
-              className="min-h-[40px] rounded-lg border border-white bg-white px-4 font-display text-xs uppercase text-qahwa-noir transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              className="min-h-[40px] rounded-lg border border-white bg-white px-4 font-display text-xs uppercase text-black transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
               Retour à la caisse
             </button>
@@ -83,6 +136,7 @@ export function CaisseToolbar() {
                 Chargement...
               </p>
             )}
+
             <iframe
               key={section.key}
               src={section.src}
