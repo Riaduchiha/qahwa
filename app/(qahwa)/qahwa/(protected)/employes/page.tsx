@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { createEmployee, updateEmployee, deleteEmployee } from "./actions";
-
+import { useConfirm, useToast } from "@/components/qahwa/NotificationProvider";
 interface Employee {
   id: string;
   name: string;
@@ -80,6 +80,8 @@ function isLate(eventDateStr: string, scheduleStartTime: string) {
 }
 
 export default function EmployeesPage() {
+    const toast = useToast();
+  const confirm = useConfirm();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [lastEvents, setLastEvents] = useState<Record<string, ClockEvent>>({});
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -197,10 +199,12 @@ export default function EmployeesPage() {
       : await createEmployee(form);
 
     if (res && !res.success) {
-      alert("Erreur : " + res.error);
+      toast.error("Erreur : " + res.error);
       setLoading(false);
       return;
     }
+
+    toast.success(editingEmp ? "Employé modifié." : "Employé ajouté.");
 
     setIsModalOpen(false);
     setEditingEmp(null);
@@ -220,14 +224,23 @@ export default function EmployeesPage() {
     setLoading(false);
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm("Supprimer cet employe ?")) {
-      try {
-        await deleteEmployee(id);
-        await loadData();
-      } catch (err: any) {
-        alert("Erreur : " + err.message);
-      }
+   const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: "Supprimer cet employé ?",
+      message: "Cette action est définitive.",
+      confirmLabel: "Supprimer",
+      cancelLabel: "Annuler",
+      tone: "danger",
+    });
+
+    if (!ok) return;
+
+    try {
+      await deleteEmployee(id);
+      await loadData();
+      toast.success("Employé supprimé.");
+    } catch (err: any) {
+      toast.error("Erreur : " + err.message);
     }
   };
 

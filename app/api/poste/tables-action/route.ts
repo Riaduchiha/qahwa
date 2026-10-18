@@ -144,16 +144,16 @@ export async function POST(request: Request) {
     );
   }
 
-  if (order.order_type !== "sur_place") {
+   // Les commandes à emporter et en livraison peuvent seulement être encaissées.
+  // Changer de table, fusionner et marquer servie restent réservés au sur place.
+  if (order.order_type !== "sur_place" && action !== "paid") {
     return NextResponse.json(
       {
-        error:
-          "Cette commande n'est pas une commande sur place.",
+        error: "Cette action est réservée aux commandes sur place.",
       },
       { status: 400 }
     );
   }
-
   // ============================================================
   // CHANGER DE TABLE
   // ============================================================

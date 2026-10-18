@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { addAdvance, deleteAdvance } from "../actions";
+import { useConfirm, useToast } from "@/components/qahwa/NotificationProvider";
 
 interface Employee {
   id: string;
@@ -83,6 +84,8 @@ function isLate(eventDateStr: string, scheduleStartTime: string) {
 export default function EmployeeDetailPage() {
   const params = useParams();
   const employeeId = params.id as string;
+    const toast = useToast();
+  const confirm = useConfirm();
 
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [clockEvents, setClockEvents] = useState<ClockEvent[]>([]);
@@ -185,7 +188,9 @@ export default function EmployeeDetailPage() {
     );
 
     if (res && !res.success) {
-      alert("Erreur : " + res.error);
+      toast.error("Erreur : " + res.error);
+    } else {
+      toast.success("Acompte ajouté.");
     }
 
     setAmount(0);
@@ -196,17 +201,25 @@ export default function EmployeeDetailPage() {
     setSaving(false);
   }
 
-  async function handleDeleteAdvance(id: string) {
-    if (confirm("Supprimer cet acompte ?")) {
-      try {
-        await deleteAdvance(id);
-        await loadAll();
-      } catch (err: any) {
-        alert("Erreur : " + err.message);
-      }
+   async function handleDeleteAdvance(id: string) {
+    const ok = await confirm({
+      title: "Supprimer cet acompte ?",
+      message: "Cette action est définitive.",
+      confirmLabel: "Supprimer",
+      cancelLabel: "Annuler",
+      tone: "danger",
+    });
+
+    if (!ok) return;
+
+    try {
+      await deleteAdvance(id);
+      await loadAll();
+      toast.success("Acompte supprimé.");
+    } catch (err: any) {
+      toast.error("Erreur : " + err.message);
     }
   }
-
   function eventStatus(ev: ClockEvent) {
     if (ev.event_type !== "in") return null;
 

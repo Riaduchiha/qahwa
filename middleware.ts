@@ -30,5 +30,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/qahwa/:path*"],
+  matcher: ["/qahwa/:path*", "/caisse/:path*"],
 };

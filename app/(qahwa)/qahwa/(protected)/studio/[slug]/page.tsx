@@ -1,334 +1,498 @@
 "use client";
 
-
+/*
+ * STUDIO QAHWA — éditeur d'affiches (v2)
+ * Chemin : app/qahwa/studio/[slug]/page.tsx (remplace l'ancien fichier)
+ *
+ * (Optionnel mais recommandé) SQL à exécuter une fois dans Supabase pour stocker
+ * les images en fichiers au lieu de base64 dans la base :
+ *
+ *   insert into storage.buckets (id, name, public) values ('studio', 'studio', true)
+ *     on conflict (id) do nothing;
+ *   create policy "studio lecture publique" on storage.objects
+ *     for select using (bucket_id = 'studio');
+ *   create policy "studio upload connecte" on storage.objects
+ *     for insert to authenticated with check (bucket_id = 'studio');
+ *
+ * Sans ce bucket, tout fonctionne quand même (les images sont alors gardées en base64).
+ */
 
 import { useParams, useRouter } from "next/navigation";
-
 import { useEffect, useRef, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  useConfirm,
+  useToast,
+  useUnsavedChangesGuard,
+} from "@/components/qahwa/NotificationProvider";
 
+/* ───────────────────────────── Types ───────────────────────────── */
 
+type Field = "title" | "subtitle" | "description" | "price" | "date";
+type Align = "left" | "center" | "right";
+type ShapeKind = "rectangle" | "circle" | "line";
+type Variant = "classic" | "premium" | "editorial" | "bold";
+type Tab = "add" | "edit" | "background" | "layers";
 
-type TextElement =
-
-  | "title"
-
-  | "subtitle"
-
-  | "description"
-
-  | "price"
-
-  | "date";
-
-
-
-type CustomLayer = {
+type Layer = {
   id: string;
-  type: "text" | "image" | "shape";
-  x: number;
-  y: number;
+  kind: "text" | "image" | "shape";
+  name?: string;
+  x: number; // % de la largeur de l'affiche
+  y: number; // % de la hauteur
+  w: number; // % de la largeur
+  h: number; // % de la hauteur (ignoré pour le texte : hauteur automatique)
+  opacity: number;
+  color: string;
+  visible: boolean;
+  locked: boolean;
+  text?: string;
+  fontFamily?: string;
+  fontSize?: number; // en px sur une affiche de 1080 px de large
+  fontWeight?: number;
+  align?: Align;
+  uppercase?: boolean;
+  shadow?: boolean;
+  src?: string;
+  fit?: "contain" | "cover";
+  shape?: ShapeKind;
+};
+
+type Background = {
+  c1: string;
+  c2: string;
+  angle: number;
+  image: string | null;
+  overlay: number; // 0–100, voile sombre (seulement avec une photo)
+};
+
+type Doc = { bg: Background; layers: Layer[] };
+
+type Format = {
+  title: string;
+  category: string;
+  format: string;
   width: number;
   height: number;
-  color: string;
-  opacity: number;
-  text?: string;
-  src?: string;
-  shape?: "rectangle" | "circle" | "line";
-  fontFamily?: string;
-  fontSize?: number;
-  fontWeight?: number;
+  fields: Field[];
 };
 
-type TextAlign = "left" | "center" | "right";
+/* ─────────────────────────── Constantes ─────────────────────────── */
 
-
-
-type TextStyle = {
-
-  fontFamily: string;
-
-  fontSize: number;
-
-  fontWeight: number;
-
-  textAlign: TextAlign;
-
-  color: string;
-
+const FORMATS: Record<string, Format> = {
+  publication: { title: "Publication", category: "Contenu", format: "Instagram portrait", width: 1080, height: 1350, fields: ["title", "subtitle", "description", "price"] },
+  "nouveau-produit": { title: "Nouveau produit", category: "Contenu", format: "Instagram portrait", width: 1080, height: 1350, fields: ["title", "subtitle", "description", "price"] },
+  promotion: { title: "Promotion", category: "Contenu", format: "Instagram portrait", width: 1080, height: 1350, fields: ["title", "subtitle", "price"] },
+  evenement: { title: "Événement", category: "Contenu", format: "Story", width: 1080, height: 1920, fields: ["title", "subtitle", "description", "date"] },
 };
 
-
-
-type TextPosition = {
-
-  x: number;
-
-  y: number;
-
+const FIELD_LABEL: Record<Field, string> = {
+  title: "Titre",
+  subtitle: "Sous-titre",
+  description: "Description",
+  price: "Prix",
+  date: "Date",
 };
 
-
-
-type LogoPosition =
-
-  | "top-left"
-
-  | "top-center"
-
-  | "top-right"
-
-  | "bottom-left"
-
-  | "bottom-center"
-
-  | "bottom-right";
-
-
-
-const studioData = {
-
-  publication: {
-
-    title: "Publication",
-
-    category: "CONTENU",
-
-    format: "Instagram Portrait",
-
-    width: 1080,
-
-    height: 1350,
-
-    ratio: "aspect-[4/5]",
-
-    fields: ["title", "subtitle", "description", "price"] as TextElement[],
-
-  },
-
-  "nouveau-produit": {
-
-    title: "Nouveau produit",
-
-    category: "CONTENU",
-
-    format: "Instagram Portrait",
-
-    width: 1080,
-
-    height: 1350,
-
-    ratio: "aspect-[4/5]",
-
-    fields: ["title", "subtitle", "description", "price"] as TextElement[],
-
-  },
-
-  promotion: {
-
-    title: "Promotion",
-
-    category: "CONTENU",
-
-    format: "Instagram Portrait",
-
-    width: 1080,
-
-    height: 1350,
-
-    ratio: "aspect-[4/5]",
-
-    fields: ["title", "subtitle", "price"] as TextElement[],
-
-  },
-
-  evenement: {
-
-    title: "Événement",
-
-    category: "CONTENU",
-
-    format: "Story",
-
-    width: 1080,
-
-    height: 1920,
-
-    ratio: "aspect-[9/16]",
-
-    fields: ["title", "subtitle", "description", "date"] as TextElement[],
-
-  },
-
+const F = {
+  archivo: '"Archivo Black", Impact, sans-serif',
+  inter: "Inter, Arial, sans-serif",
+  montserrat: "Montserrat, Arial, sans-serif",
+  playfair: "Playfair Display, Georgia, serif",
+  lato: "Lato, Arial, sans-serif",
+  bebas: "Bebas Neue, Impact, sans-serif",
 };
 
+const FONTS: { label: string; value: string }[] = [
+  { label: "Archivo Black", value: F.archivo },
+  { label: "Inter", value: F.inter },
+  { label: "Montserrat", value: F.montserrat },
+  { label: "Poppins", value: "Poppins, Arial, sans-serif" },
+  { label: "Roboto", value: "Roboto, Arial, sans-serif" },
+  { label: "Open Sans", value: "Open Sans, Arial, sans-serif" },
+  { label: "Lato", value: F.lato },
+  { label: "Oswald", value: "Oswald, Arial, sans-serif" },
+  { label: "Bebas Neue", value: F.bebas },
+  { label: "Playfair Display", value: F.playfair },
+  { label: "Caveat Brush", value: '"Caveat Brush", cursive' },
+  { label: "Cairo (arabe)", value: "Cairo, Arial, sans-serif" },
+  { label: "Arial", value: "Arial" },
+  { label: "Georgia", value: "Georgia" },
+  { label: "Impact", value: "Impact" },
+  { label: "Courier New", value: '"Courier New", monospace' },
+];
 
+const WEIGHTS = [
+  { label: "Normal", value: "400" },
+  { label: "Medium", value: "500" },
+  { label: "Semi-bold", value: "600" },
+  { label: "Bold", value: "700" },
+  { label: "Extra-bold", value: "800" },
+];
 
-const defaultTextStyles: Record<TextElement, TextStyle> = {
+const PALETTE = ["#FFFFFF", "#0A0A0A", "#FF6B00", "#FF8A2B", "#FFF3E8", "#9A9A9A"];
 
-  title: {
+const BG_PRESETS: { name: string; c1: string; c2: string; angle: number }[] = [
+  { name: "Nuit", c1: "#1B1B1B", c2: "#090909", angle: 135 },
+  { name: "Braise", c1: "#3A2524", c2: "#090909", angle: 155 },
+  { name: "Orange", c1: "#FF8A2B", c2: "#FF6B00", angle: 160 },
+  { name: "Crème", c1: "#FFF3E8", c2: "#F2D9C2", angle: 160 },
+  { name: "Forêt", c1: "#18231F", c2: "#0C1210", angle: 145 },
+  { name: "Noir", c1: "#0A0A0A", c2: "#0A0A0A", angle: 0 },
+];
 
-    fontFamily: "Arial",
+const POS_PORTRAIT: Record<Field, number> = { subtitle: 55, title: 60, description: 76, price: 85, date: 90 };
+const POS_STORY: Record<Field, number> = { subtitle: 58, title: 63, description: 79, price: 86, date: 90 };
 
-    fontSize: 42,
-
-    fontWeight: 700,
-
-    textAlign: "left",
-
-    color: "#FFFFFF",
-
-  },
-
-  subtitle: {
-
-    fontFamily: "Arial",
-
-    fontSize: 18,
-
-    fontWeight: 500,
-
-    textAlign: "left",
-
-    color: "#FFFFFF",
-
-  },
-
-  description: {
-
-    fontFamily: "Arial",
-
-    fontSize: 15,
-
-    fontWeight: 400,
-
-    textAlign: "left",
-
-    color: "#FFFFFF",
-
-  },
-
-  price: {
-
-    fontFamily: "Arial",
-
-    fontSize: 26,
-
-    fontWeight: 700,
-
-    textAlign: "left",
-
-    color: "#FFFFFF",
-
-  },
-
-  date: {
-
-    fontFamily: "Arial",
-
-    fontSize: 16,
-
-    fontWeight: 500,
-
-    textAlign: "left",
-
-    color: "#FFFFFF",
-
-  },
-
+const COPY: Record<string, Record<Field, string>> = {
+  publication: { title: "L'art du café", subtitle: "Une pause qui vous ressemble", description: "Des saveurs soigneusement choisies, chaque jour.", price: "À partir de 500 DA", date: "Samedi · 10h — 18h" },
+  "nouveau-produit": { title: "Nouvelle création", subtitle: "À découvrir chez Qahwa", description: "Une recette généreuse, préparée avec soin.", price: "850 DA", date: "Samedi · 10h — 18h" },
+  promotion: { title: "Offre spéciale", subtitle: "Une offre à ne pas manquer", description: "Profitez de notre sélection du moment.", price: "-20%", date: "Samedi · 10h — 18h" },
+  evenement: { title: "Rendez-vous Qahwa", subtitle: "Un moment à partager", description: "Rejoignez-nous pour une expérience unique.", price: "À partir de 500 DA", date: "Samedi · 10h — 18h" },
 };
 
+/** Accès sûrs : renvoient toujours une valeur définie (compatible noUncheckedIndexedAccess). */
+const getFormat = (slug: string): Format => FORMATS[slug] ?? FORMATS.publication!;
+const getCopy = (slug: string): Record<Field, string> => COPY[slug] ?? COPY.publication!;
 
-
-const defaultTextPositions: Record<TextElement, TextPosition> = {
-
-  title: {
-
-    x: 8,
-
-    y: 68,
-
-  },
-
-  subtitle: {
-
-    x: 8,
-
-    y: 62,
-
-  },
-
-  description: {
-
-    x: 8,
-
-    y: 76,
-
-  },
-
-  price: {
-
-    x: 8,
-
-    y: 84,
-
-  },
-
-  date: {
-
-    x: 8,
-
-    y: 90,
-
-  },
-
+const THEMES: Record<Variant, {
+  bg: { c1: string; c2: string; angle: number };
+  titleFont: string; bodyFont: string; priceFont: string;
+  align: Align; upper: boolean;
+  sizes: Record<Field, number>;
+}> = {
+  classic: { bg: { c1: "#1B1B1B", c2: "#090909", angle: 135 }, titleFont: F.archivo, bodyFont: F.inter, priceFont: F.archivo, align: "left", upper: true, sizes: { title: 92, subtitle: 36, description: 32, price: 64, date: 34 } },
+  premium: { bg: { c1: "#242424", c2: "#090909", angle: 135 }, titleFont: F.montserrat, bodyFont: F.inter, priceFont: F.montserrat, align: "left", upper: true, sizes: { title: 84, subtitle: 36, description: 32, price: 64, date: 34 } },
+  editorial: { bg: { c1: "#18231F", c2: "#0C1210", angle: 145 }, titleFont: F.playfair, bodyFont: F.lato, priceFont: F.playfair, align: "center", upper: false, sizes: { title: 96, subtitle: 38, description: 32, price: 56, date: 34 } },
+  bold: { bg: { c1: "#3A2524", c2: "#090909", angle: 155 }, titleFont: F.bebas, bodyFont: F.inter, priceFont: F.bebas, align: "left", upper: true, sizes: { title: 150, subtitle: 40, description: 32, price: 110, date: 36 } },
 };
 
+const GOOGLE_FONTS_URL =
+  "https://fonts.googleapis.com/css2?family=Archivo+Black&family=Bebas+Neue&family=Cairo:wght@400;600;700;800&family=Caveat+Brush&family=Inter:wght@400;500;600;700;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;600;700;800&family=Oswald:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Roboto:wght@400;500;700;900&display=swap";
 
+/* ───────────────────────────── Utilitaires ───────────────────────────── */
 
-function StudioDarkSelect({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: { label: string; value: string }[];
-  onChange: (value: string) => void;
+const uid = () => `l-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+function bgCss(bg: Background) {
+  return bg.c1 === bg.c2 ? bg.c1 : `linear-gradient(${bg.angle}deg, ${bg.c1}, ${bg.c2})`;
+}
+
+function overlayAlphas(overlay: number): [number, number] {
+  const k = overlay / 100;
+  return [0.3 * k, 1.0 * k];
+}
+
+function textLayer(p: Partial<Layer> & { text: string }): Layer {
+  return {
+    id: uid(), kind: "text", x: 8, y: 50, w: 84, h: 0, opacity: 100, color: "#FFFFFF",
+    visible: true, locked: false, fontFamily: F.inter, fontSize: 64, fontWeight: 700,
+    align: "left", uppercase: false, shadow: false, ...p,
+  };
+}
+
+function shapeLayer(p: Partial<Layer> & { shape: ShapeKind }): Layer {
+  const isLine = p.shape === "line";
+  return {
+    id: uid(), kind: "shape", x: 20, y: 30, w: isLine ? 60 : 34, h: isLine ? 0.4 : 18,
+    opacity: 100, color: "#FFFFFF", visible: true, locked: false, ...p,
+  };
+}
+
+function imageLayer(img: { src: string; nw: number; nh: number }, as: "photo" | "logo", W: number, H: number): Layer {
+  let w = as === "logo" ? 22 : 60;
+  let h = (((w / 100) * W * img.nh) / img.nw / H) * 100;
+  if (h > 90) { const k = 90 / h; w *= k; h = 90; }
+  return {
+    id: uid(), kind: "image", name: as === "logo" ? "Logo" : "Photo", src: img.src, fit: "contain",
+    x: as === "logo" ? Math.max(0, 97 - w) : (100 - w) / 2, y: as === "logo" ? 3 : 12, w, h,
+    opacity: 100, color: "#FFFFFF", visible: true, locked: false,
+  };
+}
+
+function buildDoc(slug: string, variant: Variant): Doc {
+  const f = getFormat(slug);
+  const story = f.height > f.width * 1.5;
+  const pos = story ? POS_STORY : POS_PORTRAIT;
+  const t = THEMES[variant];
+  const c = getCopy(slug);
+
+  const decos: Layer[] = [];
+  if (variant === "editorial") decos.push(shapeLayer({ shape: "line", name: "Filet", x: 30, y: pos.subtitle - 4, w: 40, h: 0.25, opacity: 75 }));
+  if (variant === "bold") decos.push(shapeLayer({ shape: "rectangle", name: "Barre", x: 8, y: pos.subtitle - 3, w: 20, h: 0.9, color: "#FF6B00" }));
+  if (variant === "premium") decos.push(shapeLayer({ shape: "circle", name: "Cercle", x: 76, y: 5, w: 16, h: ((16 * f.width) / f.height), color: "#FF6B00", opacity: 14 }));
+
+  const weights: Record<Field, number> = { title: 800, subtitle: 600, description: 400, price: 800, date: 600 };
+  const texts = f.fields.map((field) =>
+    textLayer({
+      id: `field:${field}`, name: FIELD_LABEL[field], text: c[field], y: pos[field],
+      fontFamily: field === "title" ? t.titleFont : field === "price" ? t.priceFont : t.bodyFont,
+      fontSize: t.sizes[field], fontWeight: weights[field], align: t.align,
+      uppercase: field === "title" ? t.upper : false,
+    })
+  );
+
+  return { bg: { ...t.bg, image: null, overlay: 75 }, layers: [...decos, ...texts] };
+}
+
+/** Convertit une création enregistrée avec l'ancien éditeur (v1) vers le format actuel. */
+function migrateV1(d: any, slug: string): Doc {
+  const f = getFormat(slug);
+  const css: string = typeof d.canvasBackground === "string" ? d.canvasBackground : "";
+  const hex = css.match(/#[0-9a-fA-F]{6}/g) ?? [];
+  const bg: Background = {
+    c1: hex[0] ?? "#1B1B1B", c2: hex[hex.length - 1] ?? hex[0] ?? "#090909",
+    angle: parseInt(css.match(/(\d+)deg/)?.[1] ?? "135", 10), image: d.heroImage ?? null, overlay: 85,
+  };
+  const customs: Layer[] = Array.isArray(d.customLayers)
+    ? d.customLayers.map((l: any): Layer => ({
+        id: l.id, kind: l.type, x: l.x, y: l.y, w: l.width, h: l.height ?? 0, opacity: l.opacity ?? 100,
+        color: l.color ?? "#FFFFFF", visible: true, locked: false, text: l.text, src: l.src, shape: l.shape,
+        fit: "contain", fontFamily: l.fontFamily, fontSize: l.fontSize, fontWeight: l.fontWeight, align: "left",
+      }))
+    : [];
+  const byId = new Map<string, Layer>(customs.map((l) => [l.id, l]));
+
+  (f.fields as Field[]).forEach((field) => {
+    const s = d.textStyles?.[field], p = d.textPositions?.[field], content = d.text?.[field];
+    if (!s || !p || !content) return;
+    byId.set(`text:${field}`, textLayer({
+      id: `field:${field}`, name: FIELD_LABEL[field], text: content, x: p.x, y: p.y, w: 84,
+      fontFamily: s.fontFamily, fontSize: s.fontSize, fontWeight: s.fontWeight, align: s.textAlign,
+      color: s.color, uppercase: field === "title",
+    }));
+  });
+  if (d.logoImage) {
+    const w = ((d.logoSize ?? 80) / 1080) * 100;
+    byId.set("logo", {
+      id: uid(), kind: "image", name: "Logo", src: d.logoImage, fit: "contain", x: d.logoX ?? 78, y: d.logoY ?? 4,
+      w, h: (w * f.width) / f.height, opacity: d.logoOpacity ?? 100, color: "#FFFFFF", visible: true, locked: false,
+    });
+  }
+  const order: string[] = Array.isArray(d.layerOrder) ? d.layerOrder : [];
+  const layers: Layer[] = [];
+  order.forEach((id) => { const l = byId.get(id); if (l) { layers.push(l); byId.delete(id); } });
+  byId.forEach((l) => layers.push(l));
+  return { bg, layers };
+}
+
+/* ─────────────────────── Images : redimensionnement + stockage ─────────────────────── */
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (!src.startsWith("data:")) img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+async function storeImage(file: File, max: number): Promise<{ src: string; nw: number; nh: number }> {
+  const objectUrl = URL.createObjectURL(file);
+  let img: HTMLImageElement;
+  try { img = await loadImage(objectUrl); } finally { URL.revokeObjectURL(objectUrl); }
+  const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const nw = Math.round(img.naturalWidth * k), nh = Math.round(img.naturalHeight * k);
+  const canvas = document.createElement("canvas");
+  canvas.width = nw; canvas.height = nh;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas");
+  ctx.drawImage(img, 0, 0, nw, nh);
+  const type = /png|gif|svg|webp/.test(file.type) ? "image/png" : "image/jpeg";
+  const dataUrl = canvas.toDataURL(type, 0.88);
+  const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, type, 0.88));
+  if (blob) {
+    try {
+      const supabase = createSupabaseBrowserClient() as any;
+      const path = `${new Date().getFullYear()}/${uid()}.${type === "image/png" ? "png" : "jpg"}`;
+      const { error } = await supabase.storage.from("studio").upload(path, blob, { contentType: type, cacheControl: "31536000" });
+      if (error) throw error;
+      const { data } = supabase.storage.from("studio").getPublicUrl(path);
+      if (data?.publicUrl) return { src: data.publicUrl, nw, nh };
+    } catch { /* bucket absent : on garde l'image en base64 */ }
+  }
+  return { src: dataUrl, nw, nh };
+}
+
+/* ───────────────────────── Rendu canvas (export & miniature) ───────────────────────── */
+
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number) {
+  const out: string[] = [];
+  for (const para of text.split("\n")) {
+    let line = "";
+    for (const word of para.split(" ")) {
+      const test = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(test).width > maxW) { out.push(line); line = word; } else line = test;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+function drawCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, bx: number, by: number, bw: number, bh: number, fit: "contain" | "cover") {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const k = fit === "cover" ? Math.max(bw / iw, bh / ih) : Math.min(bw / iw, bh / ih);
+  const dw = iw * k, dh = ih * k;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.clip();
+  ctx.drawImage(img, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
+  ctx.restore();
+}
+
+async function renderDoc(doc: Doc, W: number, H: number): Promise<HTMLCanvasElement> {
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas");
+  const s = W / 1080;
+
+  // Les polices doivent être chargées avant de dessiner, sinon le texte sort en police par défaut.
+  const fonts = new Set(doc.layers.filter((l) => l.kind === "text" && l.visible).map((l) => `${l.fontWeight ?? 700} 40px ${l.fontFamily}`));
+  await Promise.all([...fonts].map((f) => document.fonts.load(f, "Aa أب").catch(() => [])));
+
+  // Fond (dégradé CSS reproduit à l'identique : mêmes angles, mêmes couleurs)
+  const { bg } = doc;
+  const a = (bg.angle * Math.PI) / 180;
+  const len = Math.abs(W * Math.sin(a)) + Math.abs(H * Math.cos(a));
+  const dx = (Math.sin(a) * len) / 2, dy = (-Math.cos(a) * len) / 2;
+  const grad = ctx.createLinearGradient(W / 2 - dx, H / 2 - dy, W / 2 + dx, H / 2 + dy);
+  grad.addColorStop(0, bg.c1); grad.addColorStop(1, bg.c2);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  if (bg.image) {
+    try {
+      const img = await loadImage(bg.image);
+      drawCover(ctx, img, 0, 0, W, H, "cover");
+      const [top, bottom] = overlayAlphas(bg.overlay);
+      const ov = ctx.createLinearGradient(0, 0, 0, H);
+      ov.addColorStop(0, `rgba(0,0,0,${top})`); ov.addColorStop(1, `rgba(0,0,0,${bottom})`);
+      ctx.fillStyle = ov;
+      ctx.fillRect(0, 0, W, H);
+    } catch { /* image illisible : le dégradé reste */ }
+  }
+
+  // Calques, du fond vers le premier plan
+  for (const l of doc.layers) {
+    if (!l.visible) continue;
+    const bx = (l.x / 100) * W, by = (l.y / 100) * H, bw = (l.w / 100) * W, bh = (l.h / 100) * H;
+    ctx.save();
+    ctx.globalAlpha = l.opacity / 100;
+    if (l.kind === "text") {
+      const size = (l.fontSize ?? 40) * s;
+      ctx.font = `${l.fontWeight ?? 700} ${size}px ${l.fontFamily ?? "Arial"}`;
+      ctx.fillStyle = l.color;
+      ctx.textBaseline = "middle";
+      ctx.textAlign = l.align ?? "left";
+      if (l.shadow) { ctx.shadowColor = "rgba(0,0,0,0.55)"; ctx.shadowBlur = 0.012 * W; ctx.shadowOffsetY = 0.0025 * W; }
+      const content = l.uppercase ? (l.text ?? "").toUpperCase() : l.text ?? "";
+      const ax = l.align === "center" ? bx + bw / 2 : l.align === "right" ? bx + bw : bx;
+      const lh = size * 1.2;
+      wrapLines(ctx, content, bw).forEach((line, i) => ctx.fillText(line, ax, by + lh * (i + 0.5)));
+    } else if (l.kind === "image" && l.src) {
+      try { drawCover(ctx, await loadImage(l.src), bx, by, bw, bh, l.fit ?? "contain"); } catch { /* ignoré */ }
+    } else if (l.kind === "shape") {
+      ctx.fillStyle = l.color;
+      if (l.shape === "circle") { ctx.beginPath(); ctx.ellipse(bx + bw / 2, by + bh / 2, bw / 2, bh / 2, 0, 0, Math.PI * 2); ctx.fill(); }
+      else ctx.fillRect(bx, by, bw, bh);
+    }
+    ctx.restore();
+  }
+  return canvas;
+}
+
+/* ───────────────────────── Petits composants d'interface ───────────────────────── */
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="border-b border-white/10 py-4 last:border-b-0">
+      <h3 className="mb-3 text-xs font-semibold text-white/65">{title}</h3>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function Range({ label, value, min, max, step = 1, unit = "", onChange }: {
+  label: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (v: number) => void;
+}) {
+  return (
+    <label className="block">
+      <div className="mb-1.5 flex justify-between text-[11px] text-white/60">
+        <span>{label}</span>
+        <span className="tabular-nums text-white/85">{Math.round(value * 10) / 10}{unit}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-[#FF6B00]" />
+    </label>
+  );
+}
+
+function Seg<T extends string>({ value, options, onChange }: { value: T; options: { label: string; value: T }[]; onChange: (v: T) => void }) {
+  return (
+    <div className="grid gap-1 rounded-lg bg-white/5 p-1" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
+      {options.map((o) => (
+        <button key={o.value} type="button" onClick={() => onChange(o.value)}
+          className={`rounded-md px-2 py-2 text-[11px] font-medium transition ${o.value === value ? "bg-[#FF6B00] text-white" : "text-white/65 hover:bg-white/10 hover:text-white"}`}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Toggle({ label, on, onChange }: { label: string; on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} onClick={() => onChange(!on)}
+      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-[11px] font-medium transition ${on ? "border-[#FF6B00] bg-[#FF6B00]/10 text-white" : "border-white/10 text-white/65 hover:bg-white/5"}`}>
+      {label}
+      <span className={`h-4 w-7 rounded-full p-0.5 transition ${on ? "bg-[#FF6B00]" : "bg-white/20"}`}>
+        <span className={`block h-3 w-3 rounded-full bg-white transition ${on ? "translate-x-3" : ""}`} />
+      </span>
+    </button>
+  );
+}
+
+function ColorField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-[#121212] p-2">
+        <input type="color" aria-label="Choisir une couleur" value={value} onChange={(e) => onChange(e.target.value)} className="h-8 w-10 cursor-pointer rounded border-0 bg-transparent" />
+        <span className="text-xs uppercase tabular-nums text-white/70">{value}</span>
+      </div>
+      <div className="mt-2 flex gap-2">
+        {PALETTE.map((c) => (
+          <button key={c} type="button" aria-label={c} onClick={() => onChange(c)}
+            className={`h-7 flex-1 rounded-md border ${value.toLowerCase() === c.toLowerCase() ? "border-[#FF6B00] ring-1 ring-[#FF6B00]" : "border-white/15"}`} style={{ backgroundColor: c }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StudioSelect({ value, options, onChange }: {
+  value: string; options: { label: string; value: string; font?: string }[]; onChange: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const selected = options.find((option) => option.value === value) ?? options[0];
-
+  const selected = options.find((o) => o.value === value) ?? options[0];
   return (
     <div className="relative">
-      <button
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-left text-xs text-white outline-none transition hover:border-[#FFFFFF] focus:border-[#FFFFFF]"
-      >
-        <span>{selected?.label ?? value}</span>
+      <button type="button" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-[#121212] px-3 py-2.5 text-left text-sm text-white outline-none transition hover:border-white/30 focus:border-[#FF6B00]">
+        <span style={{ fontFamily: selected?.font }}>{selected?.label ?? value}</span>
         <span className={`ml-3 text-white/50 transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
       </button>
       {open && (
         <>
-          <button type="button" aria-label="Fermer le menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
-          <div role="listbox" className="relative z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[#333333] bg-[#101010] p-1 shadow-2xl shadow-black/60">
-            {options.map((option) => {
-              const active = option.value === value;
-              return (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  key={option.value}
-                  onClick={() => { onChange(option.value); setOpen(false); }}
-                  className={`block w-full rounded-md px-3 py-2 text-left text-xs transition ${active ? "bg-[#FFFFFF] font-semibold text-white" : "bg-transparent text-white/80 hover:bg-white/10 hover:text-white"}`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
+          <button type="button" aria-label="Fermer la liste" className="fixed inset-0 z-40 cursor-default" onClick={() => setOpen(false)} />
+          <div role="listbox" className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border border-white/15 bg-[#161616] p-1 shadow-2xl shadow-black/70">
+            {options.map((o) => (
+              <button key={o.value} type="button" role="option" aria-selected={o.value === value} onClick={() => { onChange(o.value); setOpen(false); }}
+                style={{ fontFamily: o.font }}
+                className={`block w-full rounded-md px-3 py-2 text-left text-sm transition ${o.value === value ? "bg-[#FF6B00] font-semibold text-white" : "text-white/80 hover:bg-white/10 hover:text-white"}`}>
+                {o.label}
+              </button>
+            ))}
           </div>
         </>
       )}
@@ -336,3596 +500,804 @@ function StudioDarkSelect({
   );
 }
 
+const btn = "rounded-lg border border-white/10 bg-[#121212] px-3 py-2.5 text-xs font-medium text-white/80 transition hover:border-white/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-30";
+
+/* ───────────────────────────────── Page ───────────────────────────────── */
+
 export default function StudioEditorPage() {
-
-    const [activeTab, setActiveTab] = useState<
-
-    "texte" | "images" | "formes" | "format"
-
-  >("texte");
-
   const params = useParams();
-
   const router = useRouter();
+  const rawSlug = typeof params.slug === "string" ? params.slug : Array.isArray(params.slug) ? params.slug[0] ?? "publication" : "publication";
+  const slug = FORMATS[rawSlug] ? rawSlug : "publication";
+  const fmt = getFormat(slug);
+  const W = 1080;
+  const H = fmt.height;
 
+  /* — Notifications (système QAHWA) — */
+  const toast = useToast();
+  const confirm = useConfirm();
+
+  /* — État du document + historique (annuler / rétablir) — */
+  const [doc, setDocState] = useState<Doc>(() => buildDoc(slug, "classic"));
+  const docRef = useRef(doc);
+  const pastRef = useRef<Doc[]>([]);
+  const futureRef = useRef<Doc[]>([]);
+  const lastEdit = useRef<{ key: string; t: number } | null>(null);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("add");
+  const [name, setName] = useState("Ma création");
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+  const [dragLayerId, setDragLayerId] = useState<string | null>(null);
+
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const bgInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const act = useRef<any>({});
+
+  // Prévient (avec la fenêtre QAHWA) quand on quitte la page avec des modifications non enregistrées.
+  useUnsavedChangesGuard(dirty, {
+    title: "Quitter le Studio sans enregistrer ?",
+    message: "Tu as des modifications non enregistrées sur cette affiche. Si tu quittes maintenant, elles seront perdues.",
+    confirmLabel: "Quitter sans enregistrer",
+    cancelLabel: "Rester dans l'éditeur",
+  });
+
+  const sel = doc.layers.find((l) => l.id === selectedId) ?? null;
+
+  const notify = (text: string, tone: "ok" | "error" = "ok") => {
+    if (tone === "error") toast.error(text);
+    else toast.success(text);
+  };
+
+  const commit = (next: Doc) => {
+    docRef.current = next;
+    setDocState(next);
+    setDirty(true);
+  };
+
+  /** Applique une modification. Les modifications répétées avec la même clé (curseur, glisser) comptent pour une seule étape d'historique. */
+  const apply = (fn: (d: Doc) => Doc, key?: string) => {
+    const prev = docRef.current;
+    const next = fn(prev);
+    if (next === prev) return;
+    const now = Date.now();
+    const merge = !!key && lastEdit.current?.key === key && now - lastEdit.current.t < 700;
+    if (!merge) {
+      pastRef.current = [...pastRef.current.slice(-49), prev];
+      futureRef.current = [];
+    }
+    lastEdit.current = key ? { key, t: now } : null;
+    commit(next);
+  };
+
+  const loadDoc = (d: Doc) => {
+    docRef.current = d;
+    pastRef.current = [];
+    futureRef.current = [];
+    lastEdit.current = null;
+    setDocState(d);
+    setSelectedId(null);
+    setDirty(false);
+  };
+
+  const undo = () => {
+    const prev = pastRef.current.pop();
+    if (!prev) return;
+    futureRef.current.push(docRef.current);
+    lastEdit.current = null;
+    commit(prev);
+  };
+  const redo = () => {
+    const next = futureRef.current.pop();
+    if (!next) return;
+    pastRef.current.push(docRef.current);
+    lastEdit.current = null;
+    commit(next);
+  };
+
+  const select = (id: string | null, switchTab = true) => {
+    setSelectedId(id);
+    if (!switchTab) return;
+    if (id) setTab("edit");
+    else setTab((t) => (t === "edit" ? "add" : t));
+  };
+
+  const updateLayer = (id: string, patch: Partial<Layer>, key?: string) =>
+    apply((d) => ({ ...d, layers: d.layers.map((l) => (l.id === id ? { ...l, ...patch } : l)) }), key ?? `u:${id}:${Object.keys(patch).join(",")}`);
+
+  const updateBg = (patch: Partial<Background>, key?: string) =>
+    apply((d) => ({ ...d, bg: { ...d.bg, ...patch } }), key ?? `bg:${Object.keys(patch).join(",")}`);
+
+  /** Les photos et formes s'insèrent sous les textes ; les textes et logos arrivent au premier plan. */
+  const addLayer = (layer: Layer, behindText = false) => {
+    apply((d) => {
+      const firstText = d.layers.findIndex((l) => l.kind === "text");
+      const at = behindText && firstText >= 0 ? firstText : d.layers.length;
+      const layers = [...d.layers];
+      layers.splice(at, 0, layer);
+      return { ...d, layers };
+    });
+    select(layer.id);
+  };
+
+  const removeLayer = (id: string) => {
+    apply((d) => ({ ...d, layers: d.layers.filter((l) => l.id !== id) }));
+    if (selectedId === id) select(null);
+  };
+
+  const duplicateLayer = (id: string) => {
+    const l = docRef.current.layers.find((x) => x.id === id);
+    if (!l) return;
+    const copy: Layer = { ...l, id: uid(), name: undefined, x: clamp(l.x + 3, 0, 100 - l.w), y: clamp(l.y + 3, 0, 96) };
+    apply((d) => {
+      const i = d.layers.findIndex((x) => x.id === id);
+      const layers = [...d.layers];
+      layers.splice(i + 1, 0, copy);
+      return { ...d, layers };
+    });
+    select(copy.id);
+  };
+
+  const moveLayer = (id: string, dir: "up" | "down" | "front" | "back") =>
+    apply((d) => {
+      const from = d.layers.findIndex((l) => l.id === id);
+      if (from < 0) return d;
+      const to = dir === "up" ? from + 1 : dir === "down" ? from - 1 : dir === "front" ? d.layers.length - 1 : 0;
+      if (to < 0 || to >= d.layers.length || to === from) return d;
+      const layers = [...d.layers];
+      const [item] = layers.splice(from, 1);
+      layers.splice(to, 0, item!);
+      return { ...d, layers };
+    });
+
+  const reorderLayer = (fromId: string, toId: string) =>
+    apply((d) => {
+      const from = d.layers.findIndex((l) => l.id === fromId);
+      const to = d.layers.findIndex((l) => l.id === toId);
+      if (from < 0 || to < 0 || from === to) return d;
+      const layers = [...d.layers];
+      const [item] = layers.splice(from, 1);
+      layers.splice(to, 0, item!);
+      return { ...d, layers };
+    });
+
+  /** Hauteur réelle (en %) d'un calque, utile pour le texte dont la hauteur est automatique. */
+  const measureH = (id: string) => {
+    const canvas = canvasRef.current;
+    const el = canvas?.querySelector<HTMLElement>(`[data-layer="${id}"]`);
+    if (canvas && el && canvas.offsetHeight) return (el.offsetHeight / canvas.offsetHeight) * 100;
+    return docRef.current.layers.find((l) => l.id === id)?.h ?? 5;
+  };
+
+  const alignLayer = (id: string, a: "l" | "c" | "r" | "t" | "m" | "b") => {
+    const l = docRef.current.layers.find((x) => x.id === id);
+    if (!l) return;
+    const h = l.kind === "text" ? measureH(id) : l.h;
+    const mx = l.w >= 90 ? 0 : 5, my = h >= 90 ? 0 : 5;
+    const patch: Partial<Layer> =
+      a === "l" ? { x: mx } : a === "c" ? { x: (100 - l.w) / 2 } : a === "r" ? { x: Math.max(0, 100 - l.w - mx) }
+      : a === "t" ? { y: my } : a === "m" ? { y: Math.max(0, (100 - h) / 2) } : { y: Math.max(0, 100 - h - my) };
+    updateLayer(id, patch, `align:${id}`);
+  };
+
+  /* — Déplacement et redimensionnement à la souris / au doigt — */
+  const startDrag = (e: React.PointerEvent, layer: Layer, mode: "move" | "resize") => {
+    e.preventDefault();
+    e.stopPropagation();
+    select(layer.id);
+    if (layer.locked) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const start = { ...layer };
+    const startH = layer.kind === "text" ? measureH(layer.id) : layer.h;
+
+    const snapAxis = (pos: number, size: number) => {
+      const cands: [number, number][] = [[0, 0], [0, 5], [size / 2, 50], [size, 95], [size, 100]];
+      let best: { d: number; g: number } | null = null;
+      for (const [off, target] of cands) {
+        const d = target - (pos + off);
+        if (Math.abs(d) <= 1.2 && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, g: target };
+      }
+      return best;
+    };
+
+    const move = (ev: PointerEvent) => {
+      const dx = ((ev.clientX - sx) / rect.width) * 100;
+      const dy = ((ev.clientY - sy) / rect.height) * 100;
+      if (mode === "move") {
+        let x = clamp(start.x + dx, 0, 100 - start.w);
+        let y = clamp(start.y + dy, 0, 100 - startH);
+        let gx: number | null = null, gy: number | null = null;
+        if (!ev.altKey) {
+          const sxn = snapAxis(x, start.w), syn = snapAxis(y, startH);
+          if (sxn) { x += sxn.d; gx = sxn.g; }
+          if (syn) { y += syn.d; gy = syn.g; }
+        }
+        setGuides({ x: gx, y: gy });
+        updateLayer(layer.id, { x: clamp(x, 0, 100 - start.w), y: clamp(y, 0, 100 - startH) }, `drag:${layer.id}`);
+      } else {
+        const nw = clamp(start.w + dx, 3, 100 - start.x);
+        const r = nw / start.w;
+        let patch: Partial<Layer>;
+        if (start.kind === "text") patch = { w: nw, fontSize: clamp(Math.round((start.fontSize ?? 40) * r), 12, 400) };
+        else if (start.kind === "image") patch = { w: nw, h: clamp(start.h * r, 2, 100 - start.y) };
+        else patch = { w: nw, h: clamp(start.h + dy, 0.3, 100 - start.y) };
+        updateLayer(layer.id, patch, `resize:${layer.id}`);
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setGuides({ x: null, y: null });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  /* — Ajout d'éléments — */
+  const addText = (preset: "title" | "subtitle" | "body" | "price") => {
+    const p = {
+      title: { text: "Votre titre", fontSize: 96, fontWeight: 800, fontFamily: F.archivo, uppercase: true, y: 40 },
+      subtitle: { text: "Votre sous-titre", fontSize: 40, fontWeight: 600, fontFamily: F.inter, uppercase: false, y: 50 },
+      body: { text: "Votre texte", fontSize: 32, fontWeight: 400, fontFamily: F.inter, uppercase: false, y: 60 },
+      price: { text: "850 DA", fontSize: 72, fontWeight: 800, fontFamily: F.archivo, uppercase: false, y: 75 },
+    }[preset];
+    addLayer(textLayer({ ...p, x: 8, y: clamp(p.y + (docRef.current.layers.length % 4) * 3, 0, 90) }));
+    setTimeout(() => textAreaRef.current?.select(), 80);
+  };
+
+  const handleFiles = async (files: FileList | null, as: "photo" | "logo" | "bg") => {
+    const list = Array.from(files ?? []).filter((f) => f.type.startsWith("image/"));
+    if (!list.length) return;
+    setBusy(true);
+    for (const file of list) {
+      try {
+        const img = await storeImage(file, as === "logo" ? 800 : 1800);
+        if (as === "bg") updateBg({ image: img.src, overlay: docRef.current.bg.image ? docRef.current.bg.overlay : 75 }, "bg:image");
+        else addLayer(imageLayer(img, as, W, H), as === "photo");
+      } catch {
+        notify("Impossible de lire cette image.", "error");
+      }
+    }
+    setBusy(false);
+  };
+
+  /* — Retour au Studio (avec confirmation si besoin) — */
+  const goBack = async () => {
+    if (dirty) {
+      const leave = await confirm({
+        title: "Quitter le Studio sans enregistrer ?",
+        message: "Tu as des modifications non enregistrées sur cette affiche. Si tu quittes maintenant, elles seront perdues.",
+        confirmLabel: "Quitter sans enregistrer",
+        cancelLabel: "Rester dans l'éditeur",
+        tone: "danger",
+      });
+      if (!leave) return;
+    }
+    router.push("/qahwa/studio");
+  };
+
+  /* — Enregistrement — */
+  const save = async () => {
+    if (saving) return;
+    const title = name.trim();
+    if (!title) return notify("Donne un nom à ta création.", "error");
+    setSaving(true);
+    try {
+      let thumbnail: string | undefined;
+      try {
+        const small = await renderDoc(docRef.current, 360, Math.round((360 * H) / W));
+        thumbnail = small.toDataURL("image/jpeg", 0.7);
+      } catch { /* miniature facultative */ }
+      const supabase = createSupabaseBrowserClient() as any;
+      const payload = {
+        name: title,
+        category: slug,
+        design: { version: 2, bg: docRef.current.bg, layers: docRef.current.layers, thumbnail },
+        updated_at: new Date().toISOString(),
+      };
+      const result = savedId
+        ? await supabase.from("qahwa_studio_creations").update(payload).eq("id", savedId).select("id").single()
+        : await supabase.from("qahwa_studio_creations").insert(payload).select("id").single();
+      if (result.error) throw result.error;
+      const id = result.data.id as string;
+      setSavedId(id);
+      setDirty(false);
+      const url = new URL(window.location.href);
+      url.searchParams.set("saved", id);
+      url.searchParams.delete("new");
+      url.searchParams.delete("design");
+      window.history.replaceState({}, "", url.toString());
+      notify("Création enregistrée.");
+    } catch (error) {
+      console.error("Erreur de sauvegarde Studio :", error);
+      notify("Échec de l'enregistrement. Vérifie ta connexion et que tu es connecté à Qahwa.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /* — Export — */
+  const download = async (type: "png" | "jpg") => {
+    setExportOpen(false);
+    setBusy(true);
+    try {
+      const canvas = await renderDoc(docRef.current, W, H);
+      const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, type === "png" ? "image/png" : "image/jpeg", 0.92));
+      if (!blob) throw new Error("blob");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const base = name.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "affiche";
+      a.href = url;
+      a.download = `qahwa-${base}.${type}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      notify(`Image ${type.toUpperCase()} téléchargée.`);
+    } catch (error) {
+      console.error("Erreur d'export :", error);
+      notify("Export impossible : une image du Studio est bloquée. Réimporte-la puis réessaie.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* — Effets — */
+  // Brouillon automatique : évite de perdre le travail en cas de rechargement.
+useEffect(() => {
+  if (!dirty) return;
+  const t = setTimeout(() => {
+    try {
+      localStorage.setItem(
+        `qahwa-studio-draft:${savedId ?? slug}`,
+        JSON.stringify({ name, doc: docRef.current })
+      );
+    } catch { /* stockage plein : on ignore */ }
+  }, 1000);
+  return () => clearTimeout(t);
+}, [doc, name, dirty, savedId, slug]);
   useEffect(() => {
     const id = "qahwa-studio-google-fonts";
     if (document.getElementById(id)) return;
     const link = document.createElement("link");
     link.id = id;
     link.rel = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Caveat+Brush&family=Inter:wght@400;500;600;700;800&family=Lato:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Roboto:wght@400;500;700;900&display=swap";
+    link.href = GOOGLE_FONTS_URL;
     document.head.appendChild(link);
   }, []);
 
-
-
-  const canvasRef = useRef<HTMLDivElement>(null);
-
-  const heroInputRef = useRef<HTMLInputElement>(null);
-
-  const logoInputRef = useRef<HTMLInputElement>(null);
-
-  const extraImagesInputRef = useRef<HTMLInputElement>(null);
-
-
-
-  const slug =
-
-    typeof params.slug === "string"
-
-      ? params.slug
-
-      : Array.isArray(params.slug)
-
-        ? params.slug[0]
-
-        : "publication";
-
-
-
-  const data =
-
-    studioData[slug as keyof typeof studioData] ??
-
-    studioData.publication;
-
-
-
-  const [heroImage, setHeroImage] = useState<string | null>(null);
-  const [savedCreationId, setSavedCreationId] = useState<string | null>(null);
-  const [creationName, setCreationName] = useState("Ma création");
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState("");
-  const [canvasBackground, setCanvasBackground] = useState("linear-gradient(135deg, #1b1b1b 0%, #111111 58%, #090909 100%)");
-
-  const [logoImage, setLogoImage] = useState<string | null>(null);
-
-  const [customLayers, setCustomLayers] = useState<CustomLayer[]>([]);
-  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
-  const [newTextValue, setNewTextValue] = useState("Votre texte");
-
-  // Ordre global des calques, du fond (premier) au premier plan (dernier).
-  const [layerOrder, setLayerOrder] = useState<string[]>([
-    "background", "overlay", "logo",
-    "text:subtitle", "text:title", "text:description", "text:price", "text:date",
-  ]);
-
-  const selectedLayer = customLayers.find((layer) => layer.id === selectedLayerId) ?? null;
-
-  const updateCustomLayer = (id: string, changes: Partial<CustomLayer>) => {
-    setCustomLayers((layers) => layers.map((layer) => layer.id === id ? { ...layer, ...changes } : layer));
-  };
-
-  const getLayerZ = (id: string) => {
-    const index = layerOrder.indexOf(id);
-    return index < 0 ? 1 : index + 1;
-  };
-
-  const moveLayerOrder = (id: string, direction: "up" | "down") => {
-    setLayerOrder((current) => {
-      const next = [...current];
-      const from = next.indexOf(id);
-      const to = direction === "up" ? from + 1 : from - 1;
-      if (from < 0 || to < 0 || to >= next.length) return current;
-      const fromItem = next[from];
-      const toItem = next[to];
-      if (!fromItem || !toItem) return current;
-      next[from] = toItem;
-      next[to] = fromItem;
-      return next;
-    });
-  };
-
-  const registerLayerOrder = (id: string) => {
-    setLayerOrder((current) => current.includes(id) ? current : [...current, id]);
-  };
-
-  const getLayerLabel = (id: string) => {
-    if (id === "background") return "Image / fond";
-    if (id === "overlay") return "Voile sombre";
-    if (id === "logo") return "Logo Qahwa";
-    if (id.startsWith("text:")) {
-      const field = id.slice(5) as TextElement;
-      return field === "title" ? "Titre" : field === "subtitle" ? "Sous-titre"
-        : field === "description" ? "Description" : field === "price" ? "Prix" : "Date";
-    }
-    const layer = customLayers.find((item) => item.id === id);
-    if (!layer) return "Élément";
-    if (layer.type === "text") return `Texte : ${layer.text || "Sans texte"}`;
-    if (layer.type === "image") return "Image ajoutée";
-    return `Forme : ${layer.shape === "rectangle" ? "Rectangle" : layer.shape === "circle" ? "Cercle" : "Ligne"}`;
-  };
-
-  const addCustomText = () => {
-    const id = `layer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setCustomLayers((layers) => [...layers, { id, type: "text", text: newTextValue.trim() || "Votre texte", x: 8, y: 42 + (layers.length % 4) * 8, width: 72, height: 10, color: "#FFFFFF", opacity: 100, fontFamily: "Inter, Arial, sans-serif", fontSize: 40, fontWeight: 700 }]);
-    registerLayerOrder(id);
-    setSelectedLayerId(id);
-  };
-
-  const addShape = (shape: "rectangle" | "circle" | "line") => {
-    const id = `layer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setCustomLayers((layers) => [...layers, { id, type: "shape", shape, x: 12 + (layers.length % 4) * 5, y: 35 + (layers.length % 5) * 6, width: shape === "line" ? 65 : 34, height: shape === "line" ? 1.2 : 18, color: "#FFFFFF", opacity: 85 }]);
-    registerLayerOrder(id);
-    setSelectedLayerId(id);
-  };
-
-  const handleExtraImagesChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/"));
-    files.forEach((file, index) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result !== "string") return;
-        const id = `layer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        setCustomLayers((layers) => [...layers, { id, type: "image", src: reader.result as string, x: 12 + (index % 4) * 5, y: 25 + (index % 5) * 7, width: 36, height: 25, color: "#FFFFFF", opacity: 100 }]);
-        registerLayerOrder(id);
-        setSelectedLayerId(id);
-      };
-      reader.readAsDataURL(file);
-    });
-    event.target.value = "";
-  };
-
-  const handleCustomLayerPointerDown = (event: React.PointerEvent<HTMLElement>, layer: CustomLayer) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setSelectedLayerId(layer.id);
-    const parent = canvasRef.current;
-    if (!parent) return;
-    const rect = parent.getBoundingClientRect();
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const startLayerX = layer.x;
-    const startLayerY = layer.y;
-    const move = (moveEvent: PointerEvent) => {
-      const x = Math.max(0, Math.min(100 - layer.width, startLayerX + ((moveEvent.clientX - startX) / rect.width) * 100));
-      const y = Math.max(0, Math.min(100 - layer.height, startLayerY + ((moveEvent.clientY - startY) / rect.height) * 100));
-      updateCustomLayer(layer.id, { x, y });
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
-
-
-  const handleLogoPointerDown = (event: React.PointerEvent<HTMLElement>) => {
-    if (!logoImage) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setSelectedLayerId("logo");
-    const parent = canvasRef.current;
-    if (!parent) return;
-    const rect = parent.getBoundingClientRect();
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const initialX = logoX;
-    const initialY = logoY;
-    const move = (moveEvent: PointerEvent) => {
-      setLogoX(Math.max(0, Math.min(100 - (logoSize / 1080) * 100, initialX + ((moveEvent.clientX - startX) / rect.width) * 100)));
-      setLogoY(Math.max(0, Math.min(96, initialY + ((moveEvent.clientY - startY) / rect.height) * 100)));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
-  const [logoSize, setLogoSize] = useState(80);
-
-  const [logoOpacity, setLogoOpacity] = useState(100);
-  const [logoX, setLogoX] = useState(78);
-  const [logoY, setLogoY] = useState(4);
-
-  const [logoPosition, setLogoPosition] = useState<LogoPosition>("top-right");
-
-
-
-  const [selectedElement, setSelectedElement] =
-
-    useState<TextElement>("title");
-  const [activeCanvasText, setActiveCanvasText] = useState<TextElement | null>(null);
-
-
-
-  const [textStyles, setTextStyles] =
-
-    useState<Record<TextElement, TextStyle>>(
-
-      defaultTextStyles
-
-    );
-
-
-
-  const [textPositions, setTextPositions] =
-
-    useState<Record<TextElement, TextPosition>>(
-
-      defaultTextPositions
-
-    );
-
-
-
-  const [text, setText] = useState({
-
-    title: "Nouveau produit",
-
-    subtitle: "Une nouvelle création Qahwa",
-
-    description: "Découvrez notre nouvelle création.",
-
-    price: "850 DA",
-
-    date: "Samedi 12 octobre",
-
-  });
-
-  // Chaque création choisie dans la bibliothèque charge une mise en page prête à modifier.
+  // Charge un modèle (?design=...) ou une création enregistrée (?saved=...).
   useEffect(() => {
-    const designId = new URLSearchParams(window.location.search).get("design");
-    if (!designId) return;
-
-    const variant = designId.endsWith("-editorial") ? "editorial" : designId.endsWith("-bold") ? "bold" : "premium";
-    const isProduct = slug === "nouveau-produit";
-    const isPromotion = slug === "promotion";
-    const isEvent = slug === "evenement";
-
-    const title = isProduct ? "NOUVELLE CRÉATION" : isPromotion ? "OFFRE SPÉCIALE" : isEvent ? "RENDEZ-VOUS QAHWA" : "L'ART DU CAFÉ";
-    const subtitle = isProduct ? "À découvrir chez Qahwa" : isPromotion ? "Une offre à ne pas manquer" : isEvent ? "Un moment à partager" : "Une pause qui vous ressemble";
-    const description = isProduct ? "Une recette généreuse, préparée avec soin." : isPromotion ? "Profitez de notre sélection du moment." : isEvent ? "Rejoignez-nous pour une expérience unique." : "Des saveurs soigneusement choisies, chaque jour.";
-    const theme = variant === "editorial"
-      ? { background: "linear-gradient(145deg, #18231f 0%, #0c1210 100%)", color: "#FFFFFF", family: "Playfair Display", align: "center" as TextAlign, titleSize: 62 }
-      : variant === "bold"
-        ? { background: "linear-gradient(155deg, #3a2524 0%, #151111 70%, #090909 100%)", color: "#FFFFFF", family: "Bebas Neue", align: "left" as TextAlign, titleSize: 78 }
-        : { background: "linear-gradient(135deg, #242424 0%, #090909 72%)", color: "#FFFFFF", family: "Montserrat", align: "left" as TextAlign, titleSize: 56 };
-
-    setCanvasBackground(theme.background);
-    setHeroImage(null);
-    setText({
-      title,
-      subtitle,
-      description,
-      price: isPromotion ? "-20%" : isProduct ? "850 DA" : "À PARTIR DE 500 DA",
-      date: "SAMEDI · 10H — 18H",
-    });
-    setTextStyles({
-      title: { fontFamily: theme.family, fontSize: theme.titleSize, fontWeight: 800, textAlign: theme.align, color: theme.color },
-      subtitle: { fontFamily: variant === "editorial" ? "Playfair Display" : "Inter", fontSize: variant === "bold" ? 22 : 19, fontWeight: 600, textAlign: theme.align, color: theme.color },
-      description: { fontFamily: variant === "editorial" ? "Lato" : "Inter", fontSize: 16, fontWeight: 400, textAlign: theme.align, color: theme.color },
-      price: { fontFamily: variant === "bold" ? "Bebas Neue" : "Montserrat", fontSize: variant === "bold" ? 52 : 34, fontWeight: 800, textAlign: theme.align, color: theme.color },
-      date: { fontFamily: "Inter", fontSize: 16, fontWeight: 600, textAlign: theme.align, color: theme.color },
-    });
-    setTextPositions(variant === "editorial"
-      ? { subtitle: { x: 8, y: 48 }, title: { x: 8, y: 55 }, description: { x: 12, y: 69 }, price: { x: 8, y: 80 }, date: { x: 8, y: 89 } }
-      : variant === "bold"
-        ? { subtitle: { x: 7, y: 48 }, title: { x: 7, y: 55 }, description: { x: 7, y: 70 }, price: { x: 7, y: 81 }, date: { x: 7, y: 91 } }
-        : { subtitle: { x: 8, y: 55 }, title: { x: 8, y: 61 }, description: { x: 8, y: 73 }, price: { x: 8, y: 83 }, date: { x: 8, y: 91 } });
-
-    const decorations: CustomLayer[] = variant === "editorial"
-      ? [{ id: "template-deco-line", type: "shape", shape: "line", x: 18, y: 43, width: 64, height: 0.5, color: "#FFFFFF", opacity: 75 }]
-      : variant === "bold"
-        ? [{ id: "template-deco-block", type: "shape", shape: "rectangle", x: 7, y: 43, width: 22, height: 1.2, color: "#FFFFFF", opacity: 95 }]
-        : [{ id: "template-deco-circle", type: "shape", shape: "circle", x: 78, y: 8, width: 15, height: 12, color: "#FFFFFF", opacity: 12 }];
-    setCustomLayers(decorations);
-    setSelectedLayerId(null);
-    setLayerOrder(["background", "overlay", "logo", ...decorations.map((layer) => layer.id), "text:subtitle", "text:title", "text:description", "text:price", "text:date"]);
-  }, []);
-
-  // Charge une création enregistrée si l'URL contient ?saved=<id>.
-  useEffect(() => {
-    const savedId = new URLSearchParams(window.location.search).get("saved");
-    if (!savedId) return;
-
+    const q = new URLSearchParams(window.location.search);
+    const savedParam = q.get("saved");
+    const designParam = q.get("design");
     let cancelled = false;
-
-    const loadCreation = async () => {
-      const supabase = createSupabaseBrowserClient() as any;
-      const { data: creation, error } = await supabase
-        .from("qahwa_studio_creations")
-        .select("id, name, category, design")
-        .eq("id", savedId)
-        .single();
-
-      if (cancelled) return;
-      if (error || !creation) {
-        setSaveMessage("Impossible de charger cette création. Vérifie ta connexion.");
-        return;
-      }
-
-      const design = creation.design ?? {};
-      setSavedCreationId(creation.id);
-      setCreationName(creation.name || "Ma création");
-      if (design.heroImage !== undefined) setHeroImage(design.heroImage);
-      if (design.canvasBackground !== undefined) setCanvasBackground(design.canvasBackground);
-      if (design.logoImage !== undefined) setLogoImage(design.logoImage);
-      if (Array.isArray(design.customLayers)) setCustomLayers(design.customLayers);
-      if (Array.isArray(design.layerOrder)) setLayerOrder(design.layerOrder);
-      if (typeof design.logoSize === "number") setLogoSize(design.logoSize);
-      if (typeof design.logoOpacity === "number") setLogoOpacity(design.logoOpacity);
-      if (typeof design.logoX === "number") setLogoX(design.logoX);
-      if (typeof design.logoY === "number") setLogoY(design.logoY);
-      if (design.logoPosition) setLogoPosition(design.logoPosition);
-      if (design.selectedElement) setSelectedElement(design.selectedElement);
-      if (design.textStyles) setTextStyles(design.textStyles);
-      if (design.textPositions) setTextPositions(design.textPositions);
-      if (design.text) setText(design.text);
-      if (typeof design.newTextValue === "string") setNewTextValue(design.newTextValue);
-    };
-
-    void loadCreation();
+    if (savedParam) {
+      (async () => {
+        const supabase = createSupabaseBrowserClient() as any;
+        const { data: creation, error } = await supabase
+          .from("qahwa_studio_creations").select("id, name, category, design").eq("id", savedParam).single();
+        if (cancelled) return;
+        if (error || !creation) return notify("Impossible de charger cette création. Vérifie ta connexion.", "error");
+        const d = creation.design ?? {};
+        const loaded: Doc = d.version === 2 && d.bg && Array.isArray(d.layers) ? { bg: d.bg, layers: d.layers } : migrateV1(d, slug);
+        loadDoc(loaded);
+        setSavedId(creation.id);
+        setName(creation.name || "Ma création");
+      })();
+    } else if (designParam) {
+      const variant: Variant = designParam.endsWith("-editorial") ? "editorial" : designParam.endsWith("-bold") ? "bold" : "premium";
+      loadDoc(buildDoc(slug, variant));
+    }
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSaveCreation = async () => {
-    if (isSaving) return;
-
-    let name = creationName.trim();
-    if (!savedCreationId) {
-      const enteredName = window.prompt("Donne un nom à ton affiche :", name || "Ma création");
-      if (enteredName === null) return;
-      name = enteredName.trim();
-    }
-    if (!name) {
-      setSaveMessage("Entre un nom pour ta création.");
-      return;
-    }
-
-    setIsSaving(true);
-    setSaveMessage("");
-    try {
-      const supabase = createSupabaseBrowserClient() as any;
-      const design = {
-        heroImage, canvasBackground, logoImage, customLayers, layerOrder,
-        logoSize, logoOpacity, logoX, logoY, logoPosition, selectedElement, textStyles,
-        textPositions, text, newTextValue,
-      };
-      const payload = {
-        name,
-        category: slug,
-        design,
-        updated_at: new Date().toISOString(),
-      };
-
-      const result = savedCreationId
-        ? await supabase.from("qahwa_studio_creations").update(payload).eq("id", savedCreationId).select("id").single()
-        : await supabase.from("qahwa_studio_creations").insert(payload).select("id").single();
-
-      if (result.error) throw result.error;
-      const id = result.data.id as string;
-      setSavedCreationId(id);
-      setCreationName(name);
-      const url = new URL(window.location.href);
-      url.searchParams.set("saved", id);
-      url.searchParams.delete("new");
-      url.searchParams.delete("design");
-      window.history.replaceState({}, "", url.toString());
-      setSaveMessage("Création enregistrée !");
-    } catch (error) {
-      console.error("Erreur de sauvegarde Studio :", error);
-      setSaveMessage("Échec de l’enregistrement. Vérifie que tu es connecté à Qahwa et que la table Supabase existe.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const hasField = (element: TextElement) =>
-
-    data.fields.includes(element);
-
-
-
-  const handleImageChange = (
-
-    event: React.ChangeEvent<HTMLInputElement>
-
-  ) => {
-
-    const file = event.target.files?.[0];
-
-
-
-    if (!file) return;
-
-
-
-    const reader = new FileReader();
-
-
-
-    reader.onload = () => {
-
-      if (typeof reader.result === "string") {
-
-        setHeroImage(reader.result);
-
-      }
-
+  // Raccourcis clavier (les fonctions sont lues via act.current pour toujours être à jour).
+  act.current = { undo, redo, save, select, duplicateLayer, removeLayer, selectedId, updateLayer };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const a = act.current;
+      const t = e.target as HTMLElement;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === "s") { e.preventDefault(); a.save(); return; }
+      const textEntry = t.tagName === "TEXTAREA" || t.tagName === "SELECT" ||
+        (t.tagName === "INPUT" && !["range", "color", "checkbox", "file"].includes((t as HTMLInputElement).type));
+      if (textEntry) return;
+      // Quand une fenêtre de confirmation est ouverte, les raccourcis de l'éditeur sont suspendus.
+      if (t.closest?.('[role="alertdialog"]')) return;
+      if (mod && key === "z") { e.preventDefault(); if (e.shiftKey) a.redo(); else a.undo(); return; }
+      if (mod && key === "y") { e.preventDefault(); a.redo(); return; }
+      if (t.tagName === "INPUT") return;
+      const id: string | null = a.selectedId;
+      if (!id) return;
+      if (mod && key === "d") { e.preventDefault(); a.duplicateLayer(id); return; }
+      if (key === "delete" || key === "backspace") { e.preventDefault(); a.removeLayer(id); return; }
+      if (key === "escape") { a.select(null); return; }
+      const step = e.shiftKey ? 2 : 0.5;
+      const d = { arrowleft: [-step, 0], arrowright: [step, 0], arrowup: [0, -step], arrowdown: [0, step] }[key];
+      if (!d) return;
+      e.preventDefault();
+      const l = docRef.current.layers.find((x) => x.id === id);
+      if (!l || l.locked) return;
+      a.updateLayer(id, { x: clamp(l.x + d[0]!, 0, 100 - l.w), y: clamp(l.y + d[1]!, 0, 100) }, `nudge:${id}`);
     };
-
-
-
-    reader.readAsDataURL(file);
-
-  };
-
-
-
-  const handleLogoChange = (
-
-    event: React.ChangeEvent<HTMLInputElement>
-
-  ) => {
-
-    const file = event.target.files?.[0];
-
-
-
-    if (!file) return;
-
-
-
-    const reader = new FileReader();
-
-
-
-    reader.onload = () => {
-
-      if (typeof reader.result === "string") {
-
-        setLogoImage(reader.result);
-
-      }
-
-    };
-
-
-
-    reader.readAsDataURL(file);
-
-  };
-
-
-
-  const updateText = (
-
-    element: TextElement,
-
-    value: string
-
-  ) => {
-
-    setText((current) => ({
-
-      ...current,
-
-      [element]: value,
-
-    }));
-
-  };
-
-
-
-  const updateSelectedStyle = (
-
-    changes: Partial<TextStyle>
-
-  ) => {
-
-    setTextStyles((current) => ({
-
-      ...current,
-
-      [selectedElement]: {
-
-        ...current[selectedElement],
-
-        ...changes,
-
-      },
-
-    }));
-
-  };
-
-
-
-  const updateSelectedPosition = (
-
-    changes: Partial<TextPosition>
-
-  ) => {
-
-    setTextPositions((current) => ({
-
-      ...current,
-
-      [selectedElement]: {
-
-        ...current[selectedElement],
-
-        ...changes,
-
-      },
-
-    }));
-
-  };
-
-
-
-  const resetSelectedPosition = () => {
-
-    setTextPositions((current) => ({
-
-      ...current,
-
-      [selectedElement]:
-
-        defaultTextPositions[selectedElement],
-
-    }));
-
-  };
-
-
-
-  const handleTextPointerDown = (
-
-    event: React.PointerEvent<HTMLDivElement>,
-
-    element: TextElement
-
-  ) => {
-
-    event.preventDefault();
-
-    event.stopPropagation();
-
-
-
-    setSelectedElement(element);
-    setActiveCanvasText(element);
-
-
-
-    const parent = canvasRef.current;
-
-
-
-    if (!parent) return;
-
-
-
-    const rect = parent.getBoundingClientRect();
-
-
-
-    const startX = event.clientX;
-
-    const startY = event.clientY;
-
-
-
-    const startPosition = textPositions[element];
-
-
-
-    const handlePointerMove = (
-
-      moveEvent: PointerEvent
-
-    ) => {
-
-      const deltaX =
-
-        ((moveEvent.clientX - startX) /
-
-          rect.width) *
-
-        100;
-
-
-
-      const deltaY =
-
-        ((moveEvent.clientY - startY) /
-
-          rect.height) *
-
-        100;
-
-
-
-      const newX = Math.max(
-
-        0,
-
-        Math.min(84, startPosition.x + deltaX)
-
-      );
-
-
-
-      const newY = Math.max(
-
-        0,
-
-        Math.min(94, startPosition.y + deltaY)
-
-      );
-
-
-
-      setTextPositions((current) => ({
-
-        ...current,
-
-        [element]: {
-
-          x: newX,
-
-          y: newY,
-
-        },
-
-      }));
-
-    };
-
-
-
-    const handlePointerUp = () => {
-
-      window.removeEventListener(
-
-        "pointermove",
-
-        handlePointerMove
-
-      );
-
-
-
-      window.removeEventListener(
-
-        "pointerup",
-
-        handlePointerUp
-
-      );
-
-    };
-
-
-
-    window.addEventListener(
-
-      "pointermove",
-
-      handlePointerMove
-
-    );
-
-
-
-    window.addEventListener(
-
-      "pointerup",
-
-      handlePointerUp
-
-    );
-
-  };
-
-
-
-  const renderTextElement = (
-
-    element: TextElement,
-
-    content: string
-
-  ) => {
-
-    if (!hasField(element) || !content) {
-
-      return null;
-
-    }
-
-
-
-    const style = textStyles[element];
-
-    const position = textPositions[element];
-
-
-
-    const commonStyle = {
-
-      position: "absolute" as const,
-      zIndex: getLayerZ(`text:${element}`),
-
-      left: `${position.x}%`,
-
-      top: `${position.y}%`,
-
-      fontFamily: style.fontFamily,
-
-      // Le texte reste proportionnel à l’affiche, quelle que soit sa taille à l’écran.
-
-      fontSize: `${(style.fontSize / 1080) * 100}cqw`,
-
-      fontWeight: style.fontWeight,
-
-      textAlign: style.textAlign,
-
-      color: style.color,
-
-      maxWidth: "84%",
-
-      lineHeight: 1.15,
-
-    };
-
-
-
-    const isSelected =
-
-      selectedElement === element;
-
-
-
-    return (
-
-      <div
-
-        key={element}
-
-        onPointerDown={(event) =>
-
-          handleTextPointerDown(
-
-            event,
-
-            element
-
-          )
-
-        }
-
-        style={commonStyle}
-
-        className={`cursor-move select-none whitespace-pre-wrap ${
-
-          isSelected
-
-            ? "rounded border border-dashed border-[#FFFFFF] px-2 py-1"
-
-            : ""
-
-        }`}
-
-      >
-
-        {element === "title"
-
-          ? content.toUpperCase()
-
-          : content}
-
-      </div>
-
-    );
-
-  };
-
-
-
-  /*
-
-   * TÉLÉCHARGEMENT
-
-   * Cette fonction est volontairement en dehors
-
-   * de renderTextElement.
-
-   */
-
-  const handleDownload = async () => {
-
-    if (!canvasRef.current) return;
-
-
-
-    const width = 1080;
-
-
-
-    const height =
-
-      data.ratio === "aspect-[9/16]"
-
-        ? 1920
-
-        : 1350;
-
-
-
-    const canvas =
-
-      document.createElement("canvas");
-
-
-
-    canvas.width = width;
-
-    canvas.height = height;
-
-
-
-    const ctx = canvas.getContext("2d");
-
-
-
-    if (!ctx) return;
-
-
-
-    const loadImage = (
-
-      src: string
-
-    ) =>
-
-      new Promise<HTMLImageElement>(
-
-        (resolve, reject) => {
-
-          const image = new Image();
-
-
-
-          image.onload = () =>
-
-            resolve(image);
-
-
-
-          image.onerror = reject;
-
-
-
-          image.src = src;
-
-        }
-
-      );
-
-
-
-    /*
-
-     * FOND
-
-     */
-
-    if (heroImage) {
-
-      try {
-
-        const image =
-
-          await loadImage(heroImage);
-
-
-
-        const scale = Math.max(
-
-          width / image.naturalWidth,
-
-          height / image.naturalHeight
-
-        );
-
-
-
-        const imageWidth =
-
-          image.naturalWidth * scale;
-
-
-
-        const imageHeight =
-
-          image.naturalHeight * scale;
-
-
-
-        const imageX =
-
-          (width - imageWidth) / 2;
-
-
-
-        const imageY =
-
-          (height - imageHeight) / 2;
-
-
-
-        ctx.drawImage(
-
-          image,
-
-          imageX,
-
-          imageY,
-
-          imageWidth,
-
-          imageHeight
-
-        );
-
-      } catch {
-
-        ctx.fillStyle = "#111111";
-
-        ctx.fillRect(
-
-          0,
-
-          0,
-
-          width,
-
-          height
-
-        );
-
-      }
-
-    } else {
-
-      const gradient =
-
-        ctx.createLinearGradient(
-
-          0,
-
-          0,
-
-          width,
-
-          height
-
-        );
-
-
-
-      gradient.addColorStop(
-
-        0,
-
-        "#1b1b1b"
-
-      );
-
-
-
-      gradient.addColorStop(
-
-        0.5,
-
-        "#111111"
-
-      );
-
-
-
-      gradient.addColorStop(
-
-        1,
-
-        "#090909"
-
-      );
-
-
-
-      ctx.fillStyle = gradient;
-
-
-
-      ctx.fillRect(
-
-        0,
-
-        0,
-
-        width,
-
-        height
-
-      );
-
-    }
-
-
-
-    /*
-
-     * OVERLAY
-
-     */
-
-    const overlay =
-
-      ctx.createLinearGradient(
-
-        0,
-
-        0,
-
-        0,
-
-        height
-
-      );
-
-
-
-    overlay.addColorStop(
-
-      0,
-
-      "rgba(0,0,0,0.25)"
-
-    );
-
-
-
-    overlay.addColorStop(
-
-      0.55,
-
-      "rgba(0,0,0,0.20)"
-
-    );
-
-
-
-    overlay.addColorStop(
-
-      1,
-
-      "rgba(0,0,0,0.85)"
-
-    );
-
-
-
-    ctx.fillStyle = overlay;
-
-
-
-    ctx.fillRect(
-
-      0,
-
-      0,
-
-      width,
-
-      height
-
-    );
-
-
-
-    /*
-
-     * LOGO
-
-     */
-
-    if (logoImage) {
-
-      try {
-
-        const logo =
-
-          await loadImage(logoImage);
-
-
-
-        const logoWidth =
-
-          logoSize;
-
-
-
-        const logoHeight =
-
-          (logo.naturalHeight /
-
-            logo.naturalWidth) *
-
-          logoWidth;
-
-
-
-        let logoX = 24;
-
-        let logoY = 24;
-
-
-
-        if (
-
-          logoPosition ===
-
-          "top-center"
-
-        ) {
-
-          logoX =
-
-            (width - logoWidth) / 2;
-
-
-
-          logoY = 24;
-
-        }
-
-
-
-        if (
-
-          logoPosition ===
-
-          "top-right"
-
-        ) {
-
-          logoX =
-
-            width -
-
-            logoWidth -
-
-            24;
-
-
-
-          logoY = 24;
-
-        }
-
-
-
-        if (
-
-          logoPosition ===
-
-          "bottom-left"
-
-        ) {
-
-          logoX = 24;
-
-
-
-          logoY =
-
-            height -
-
-            logoHeight -
-
-            24;
-
-        }
-
-
-
-        if (
-
-          logoPosition ===
-
-          "bottom-center"
-
-        ) {
-
-          logoX =
-
-            (width - logoWidth) / 2;
-
-
-
-          logoY =
-
-            height -
-
-            logoHeight -
-
-            24;
-
-        }
-
-
-
-        if (
-
-          logoPosition ===
-
-          "bottom-right"
-
-        ) {
-
-          logoX =
-
-            width -
-
-            logoWidth -
-
-            24;
-
-
-
-          logoY =
-
-            height -
-
-            logoHeight -
-
-            24;
-
-        }
-
-
-
-        ctx.save();
-
-        ctx.globalAlpha = logoOpacity / 100;
-
-        ctx.drawImage(
-
-          logo,
-
-          logoX,
-
-          logoY,
-
-          logoWidth,
-
-          logoHeight
-
-        );
-
-        ctx.restore();
-
-      } catch {}
-
-    }
-
-
-
-    /*
-
-     * TEXTE
-
-     */
-
-    const drawText = (
-
-      element: TextElement,
-
-      content: string
-
-    ) => {
-
-      if (
-
-        !hasField(element) ||
-
-        !content
-
-      ) {
-
-        return;
-
-      }
-
-
-
-      const style =
-
-        textStyles[element];
-
-
-
-      const position =
-
-        textPositions[element];
-
-
-
-      const x =
-
-        (position.x / 100) *
-
-        width;
-
-
-
-      const y =
-
-        (position.y / 100) *
-
-        height;
-
-
-
-      const fontSize =
-
-        style.fontSize *
-
-        (width / 1080);
-
-
-
-      ctx.font = `${style.fontWeight} ${fontSize}px ${style.fontFamily}`;
-
-
-
-      ctx.fillStyle =
-
-        style.color;
-
-
-
-      ctx.textAlign =
-
-        style.textAlign === "left"
-
-          ? "left"
-
-          : style.textAlign ===
-
-              "center"
-
-            ? "center"
-
-            : "right";
-
-
-
-      ctx.textBaseline = "top";
-
-
-
-      const maxWidth =
-
-        width * 0.84;
-
-
-
-      const words =
-
-        content.split(" ");
-
-
-
-      const lines: string[] = [];
-
-
-
-      let currentLine = "";
-
-
-
-      for (const word of words) {
-
-        const testLine =
-
-          currentLine
-
-            ? `${currentLine} ${word}`
-
-            : word;
-
-
-
-        if (
-
-          ctx.measureText(
-
-            testLine
-
-          ).width > maxWidth &&
-
-          currentLine
-
-        ) {
-
-          lines.push(
-
-            currentLine
-
-          );
-
-
-
-          currentLine = word;
-
-        } else {
-
-          currentLine =
-
-            testLine;
-
-        }
-
-      }
-
-
-
-      if (currentLine) {
-
-        lines.push(
-
-          currentLine
-
-        );
-
-      }
-
-
-
-      const lineHeight =
-
-        fontSize * 1.15;
-
-
-
-      lines.forEach(
-
-        (line, index) => {
-
-          ctx.fillText(
-
-            element === "title"
-
-              ? line.toUpperCase()
-
-              : line,
-
-            x,
-
-            y +
-
-              index *
-
-                lineHeight
-
-          );
-
-        }
-
-      );
-
-    };
-
-
-
-    drawText(
-
-      "subtitle",
-
-      text.subtitle
-
-    );
-
-
-
-    drawText(
-
-      "title",
-
-      text.title
-
-    );
-
-
-
-    drawText(
-
-      "description",
-
-      text.description
-
-    );
-
-
-
-    drawText(
-
-      "price",
-
-      text.price
-
-    );
-
-
-
-    drawText(
-
-      "date",
-
-      text.date
-
-    );
-
-
-
-    /*
-
-     * TÉLÉCHARGEMENT PNG
-
-     */
-
-    // Dessiner les éléments ajoutés par l'utilisateur dans l'image exportée.
-    for (const layer of customLayers) {
-      const x = (layer.x / 100) * width;
-      const y = (layer.y / 100) * height;
-      const layerWidth = (layer.width / 100) * width;
-      const layerHeight = (layer.height / 100) * height;
-      ctx.save();
-      ctx.globalAlpha = layer.opacity / 100;
-      if (layer.type === "text") {
-        ctx.fillStyle = layer.color;
-        ctx.font = `${layer.fontWeight ?? 700} ${layer.fontSize ?? Math.max(20, width * 0.036)}px ${layer.fontFamily ?? "Arial"}`;
-        const lines = (layer.text || "").split("\n");
-        lines.forEach((line, lineIndex) => ctx.fillText(line, x, y + lineIndex * Math.max(24, width * 0.042), layerWidth));
-      } else if (layer.type === "image" && layer.src) {
-        try {
-          const image = await loadImage(layer.src);
-          const scale = Math.min(layerWidth / image.naturalWidth, layerHeight / image.naturalHeight);
-          const drawWidth = image.naturalWidth * scale;
-          const drawHeight = image.naturalHeight * scale;
-          ctx.drawImage(image, x, y, drawWidth, drawHeight);
-        } catch {}
-      } else if (layer.type === "shape") {
-        ctx.fillStyle = layer.color;
-        const shapeHeight = layer.shape === "line" ? Math.max(3, layerHeight) : layerHeight;
-        if (layer.shape === "circle") {
-          ctx.beginPath();
-          ctx.ellipse(x + layerWidth / 2, y + shapeHeight / 2, layerWidth / 2, shapeHeight / 2, 0, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          ctx.fillRect(x, y, layerWidth, shapeHeight);
-        }
-      }
-      ctx.restore();
-    }
-
-    canvas.toBlob(
-
-      (blob) => {
-
-        if (!blob) return;
-
-
-
-        const url =
-
-          URL.createObjectURL(
-
-            blob
-
-          );
-
-
-
-        const link =
-
-          document.createElement(
-
-            "a"
-
-          );
-
-
-
-        link.href = url;
-
-
-
-        link.download =
-
-          `qahwa-${slug}.png`;
-
-
-
-        document.body.appendChild(
-
-          link
-
-        );
-
-
-
-        link.click();
-
-
-
-        link.remove();
-
-
-
-        URL.revokeObjectURL(
-
-          url
-
-        );
-
-      },
-
-      "image/png"
-
-    );
-
-  };
-
-
-
-  const selectedStyle =
-
-    textStyles[selectedElement];
-
-
-
-  const selectedPosition =
-
-    textPositions[selectedElement];
-
-
-
-  const logoPositionClass: Record<
-
-    LogoPosition,
-
-    string
-
-  > = {
-
-    "top-left":
-
-      "left-3 top-3",
-
-    "top-center":
-
-      "left-1/2 top-3 -translate-x-1/2",
-
-    "top-right":
-
-      "right-3 top-3",
-
-    "bottom-left":
-
-      "bottom-3 left-3",
-
-    "bottom-center":
-
-      "bottom-3 left-1/2 -translate-x-1/2",
-
-    "bottom-right":
-
-      "bottom-3 right-3",
-
-  };
-
-
-
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /* — Libellés — */
+  const layerLabel = (l: Layer) =>
+    l.kind === "text" ? (l.text?.split("\n")[0]?.slice(0, 28) || "Texte vide")
+    : l.kind === "image" ? l.name ?? "Image"
+    : l.name ?? (l.shape === "rectangle" ? "Rectangle" : l.shape === "circle" ? "Cercle" : "Ligne");
+  const layerIcon = (l: Layer) => (l.kind === "text" ? "T" : l.kind === "image" ? "▧" : l.shape === "circle" ? "●" : l.shape === "line" ? "━" : "▰");
+
+  const [bgTop, bgBottom] = overlayAlphas(doc.bg.overlay);
+  const statusText = dirty ? "Modifications non enregistrées" : savedId ? "Enregistré" : "Nouvelle création";
+  const canUndo = pastRef.current.length > 0;
+  const canRedo = futureRef.current.length > 0;
+
+  /* ───────────────────────────── Rendu ───────────────────────────── */
   return (
-
-    <div className="min-h-screen bg-[#090909] text-white">
-
-      {/* HEADER */}
-
-      <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/25 px-3 py-3 backdrop-blur-2xl sm:px-5">
-
-        <div className="flex items-center gap-4">
-
-          <button
-
-            type="button"
-
-            onClick={() =>
-
-              router.push(
-
-                "/qahwa/studio"
-
-              )
-
-            }
-
-            className="text-sm text-white/60 transition hover:text-white"
-
-          >
-
-            ← Studio
-
-          </button>
-
-
-
-          <div className="h-5 w-px bg-white/10" />
-
-
-
-          <div>
-
-            <div className="flex items-center gap-2">
-
-              <span className="h-2 w-2 rounded-full bg-[#FFFFFF]" />
-
-
-
-              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/50">
-
-                {data.category}
-
-              </span>
-
-            </div>
-
-
-
-            <h1 className="mt-0.5 text-sm font-semibold uppercase tracking-[0.08em]">
-
-              {data.title}
-
-            </h1>
-
-          </div>
-
+    <div className="min-h-screen bg-[#0A0A0A] text-white">
+      {/* EN-TÊTE */}
+      <header className="flex flex-wrap items-center gap-3 border-b border-white/10 bg-[#0F0F0F] px-3 py-2.5 sm:px-5">
+        <button type="button" onClick={() => void goBack()}
+          className="text-sm text-white/60 transition hover:text-white">← Studio</button>
+        <div className="h-5 w-px bg-white/10" />
+        <div className="min-w-0 flex-1 sm:flex-none">
+          <input value={name} onChange={(e) => { setName(e.target.value); setDirty(true); }} aria-label="Nom de la création" maxLength={60}
+            className="w-full min-w-[10rem] rounded-md border border-transparent bg-transparent px-2 py-1 text-sm font-semibold outline-none transition hover:border-white/15 focus:border-[#FF6B00] sm:w-64" />
+          <p className="px-2 text-[10px] text-white/45">
+            <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${dirty ? "bg-[#FF6B00]" : "bg-emerald-400"}`} />
+            {statusText} · {fmt.title} · {fmt.format} · {fmt.width} × {fmt.height} px
+          </p>
         </div>
 
-
-
-        <div className="flex items-center gap-4">
-
-          <div className="hidden text-right sm:block">
-
-            <p className="text-[9px] uppercase tracking-[0.16em] text-white/35">
-
-              {data.format}
-
-            </p>
-
-
-
-            <p className="text-[10px] text-white/55">
-
-              {data.width} ×{" "}
-
-              {data.height} px
-
-            </p>
-
-          </div>
-
-
-
-          <div className="flex flex-col items-end gap-1">
-            <button
-              type="button"
-              onClick={handleSaveCreation}
-              disabled={isSaving}
-              className="rounded-lg border border-white/20 bg-[#FF6B00] px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white transition hover:bg-[#e85f00] disabled:cursor-wait disabled:opacity-60"
-            >
-              {isSaving ? "Enregistrement…" : savedCreationId ? "Enregistrer" : "Enregistrer ma création"}
+        <div className="ml-auto flex items-center gap-2">
+          <button type="button" onClick={undo} disabled={!canUndo} title="Annuler (Ctrl+Z)" className={btn}>↶ Annuler</button>
+          <button type="button" onClick={redo} disabled={!canRedo} title="Rétablir (Ctrl+Maj+Z)" className={btn}>↷ Rétablir</button>
+          <button type="button" onClick={save} disabled={saving} title="Enregistrer (Ctrl+S)"
+            className="rounded-lg bg-[#FF6B00] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#e85f00] disabled:cursor-wait disabled:opacity-60">
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </button>
+          <div className="relative">
+            <button type="button" onClick={() => setExportOpen((o) => !o)} disabled={busy}
+              className="rounded-lg bg-white px-4 py-2.5 text-xs font-bold text-black transition hover:bg-white/85 disabled:opacity-60">
+              {busy ? "Patiente…" : "Télécharger ▾"}
             </button>
-            {saveMessage ? <span role="status" className="max-w-56 text-right text-[10px] text-white/75">{saveMessage}</span> : null}
+            {exportOpen && (
+              <>
+                <button type="button" aria-label="Fermer" className="fixed inset-0 z-40 cursor-default" onClick={() => setExportOpen(false)} />
+                <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-white/15 bg-[#161616] p-1 shadow-2xl">
+                  <button type="button" onClick={() => download("png")} className="block w-full rounded-md px-3 py-2.5 text-left text-xs hover:bg-white/10">
+                    <span className="font-semibold">PNG</span> <span className="text-white/50">· qualité maximale</span>
+                  </button>
+                  <button type="button" onClick={() => download("jpg")} className="block w-full rounded-md px-3 py-2.5 text-left text-xs hover:bg-white/10">
+                    <span className="font-semibold">JPG</span> <span className="text-white/50">· fichier plus léger</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
-
-          <button
-
-            type="button"
-
-            onClick={handleDownload}
-
-            className="rounded-lg bg-white px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-black transition hover:bg-white/85"
-
-          >
-
-            Télécharger l’affiche
-
-          </button>
-
         </div>
-
       </header>
 
-
-
-      {/* WORKSPACE */}
-
-      <div className="flex min-h-[calc(100vh-4rem)] flex-col lg:flex-row">
-
-        {/* CANVAS */}
-
-        <main className="flex min-w-0 flex-1 flex-col items-center justify-center overflow-auto bg-[#090909] p-3 sm:p-6 lg:p-8">
-          <div className="mb-3 flex w-full max-w-[520px] items-center gap-2 rounded-lg border border-white/10 bg-[#141414] px-3 py-2 text-[11px] text-white/55">
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#FFFFFF]/15 font-bold text-[#FFFFFF]">i</span>
-            Clique sur un texte ou un élément, puis fais-le glisser pour le déplacer.
+      <div className="flex min-h-[calc(100vh-4.5rem)] flex-col lg:flex-row">
+        {/* ZONE D'AFFICHE */}
+        <main className="flex min-w-0 flex-1 flex-col items-center gap-3 overflow-auto p-3 sm:p-5"
+          style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)", backgroundSize: "22px 22px" }}
+          onPointerDown={() => select(null)}>
+          {/* Barre d'actions de l'élément sélectionné */}
+          <div className="flex min-h-[44px] w-full max-w-[640px] flex-wrap items-center justify-center gap-2 rounded-xl border border-white/10 bg-[#121212] px-3 py-1.5 text-[11px]"
+            onPointerDown={(e) => e.stopPropagation()}>
+            {sel ? (
+              <>
+                <span className="mr-auto max-w-[40%] truncate font-semibold text-white/80">{layerIcon(sel)} {layerLabel(sel)}</span>
+                <button type="button" className={btn + " !py-1.5"} onClick={() => duplicateLayer(sel.id)} title="Dupliquer (Ctrl+D)">Dupliquer</button>
+                <button type="button" className={btn + " !py-1.5"} onClick={() => moveLayer(sel.id, "down")} title="Envoyer derrière">↓ Derrière</button>
+                <button type="button" className={btn + " !py-1.5"} onClick={() => moveLayer(sel.id, "up")} title="Mettre devant">↑ Devant</button>
+                <button type="button" className={btn + " !py-1.5 !text-red-300"} onClick={() => removeLayer(sel.id)} title="Supprimer (Suppr)">Supprimer</button>
+              </>
+            ) : (
+              <span className="text-white/50">Clique sur un élément pour le modifier, glisse-le pour le déplacer, tire le coin orange pour l'agrandir.</span>
+            )}
           </div>
-          <div className="flex min-h-0 w-full flex-1 items-center justify-center">
-            <div
-              className="flex min-h-full w-full items-center justify-center"
-              style={{
-                backgroundImage: "linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)",
-                backgroundSize: "24px 24px",
-              }}
-            >
 
+          <div className="flex w-full flex-1 items-start justify-center sm:items-center">
             <div
-
               ref={canvasRef}
-
-              className={`relative w-full max-w-[520px] overflow-hidden bg-[#111111] shadow-2xl ${data.ratio}`}
-
-              style={{ containerType: "inline-size" }}
-
+              onPointerDown={(e) => { e.stopPropagation(); select(null); }}
+              className="relative overflow-hidden bg-[#111] shadow-[0_20px_60px_rgba(0,0,0,0.6)]"
+              style={{ width: `min(100%, calc((100vh - 16rem) * ${W / H}))`, aspectRatio: `${W} / ${H}`, containerType: "inline-size" }}
             >
-
-              {/* IMAGE DE FOND */}
-
-              {heroImage ? (
-
-                <img
-
-                  src={heroImage}
-
-                  alt=""
-
-                  className="absolute inset-0 h-full w-full object-cover" style={{ zIndex: getLayerZ("background") }}
-
-                />
-
-              ) : (
-
-                <div className="absolute inset-0" style={{ zIndex: getLayerZ("background"), background: canvasBackground }} />
-
+              {/* Fond */}
+              <div className="absolute inset-0" style={{ zIndex: 0, background: doc.bg.image ? "#111" : bgCss(doc.bg) }}>
+                {doc.bg.image && <img src={doc.bg.image} alt="" draggable={false} className="h-full w-full object-cover" />}
+              </div>
+              {doc.bg.image && (
+                <div className="absolute inset-0" style={{ zIndex: 0, background: `linear-gradient(to bottom, rgba(0,0,0,${bgTop}), rgba(0,0,0,${bgBottom}))` }} />
               )}
 
-
-
-              {/* OVERLAY */}
-
-              <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/20 to-black/85" style={{ zIndex: getLayerZ("overlay") }} />
-
-
-
-              {/* LOGO */}
-
-              {logoImage && (
-                <div
-                  onPointerDown={handleLogoPointerDown}
-                  onClick={() => setSelectedLayerId("logo")}
-                  title="Fais glisser pour déplacer le logo"
-                  className="absolute cursor-move touch-none"
-                  style={{
-                    zIndex: getLayerZ("logo"),
-                    left: `${logoX}%`,
-                    top: `${logoY}%`,
-                    width: `${(logoSize / 1080) * 100}%`,
-                    outline: selectedLayerId === "logo" ? "1px dashed rgba(255,255,255,.9)" : "none",
-                    opacity: logoOpacity / 100,
-                  }}
-                >
-                  <img src={logoImage} alt="Logo Qahwa" draggable={false} className="block h-auto w-full object-contain" />
-                  {selectedLayerId === "logo" && <span className="absolute -bottom-2 -right-2 h-3 w-3 rounded-sm border border-white bg-black" aria-hidden="true" />}
-                </div>
-              )}
-
-
-
-              {/* ÉLÉMENTS AJOUTÉS : textes, images et formes */}
-              {customLayers.map((layer) => {
-                const selected = selectedLayerId === layer.id;
-                const commonStyle: React.CSSProperties = {
-                  position: "absolute",
-                  left: `${layer.x}%`,
-                  top: `${layer.y}%`,
-                  width: `${layer.width}%`,
-                  height: layer.type === "text" ? "auto" : `${layer.height}%`,
-                  opacity: layer.opacity / 100,
-                  zIndex: getLayerZ(layer.id),
-                  cursor: "move",
-                  touchAction: "none",
-                  outline: selected ? "1px dashed #FFFFFF" : "none",
-                };
-                if (layer.type === "text") {
-                  return <div key={layer.id} onPointerDown={(event) => handleCustomLayerPointerDown(event, layer)} style={{ ...commonStyle, color: layer.color, fontFamily: layer.fontFamily ?? "Arial", fontSize: `${((layer.fontSize ?? 40) / 1080) * 100}cqw`, fontWeight: layer.fontWeight ?? 700, lineHeight: 1.15, whiteSpace: "pre-wrap" }}>{layer.text}</div>;
-                }
-                if (layer.type === "image") {
-                  return <img key={layer.id} src={layer.src} alt="Image ajoutée" onPointerDown={(event) => handleCustomLayerPointerDown(event, layer)} style={{ ...commonStyle, objectFit: "contain" }} />;
-                }
-                return <div key={layer.id} aria-label={`Forme ${layer.shape}`} onPointerDown={(event) => handleCustomLayerPointerDown(event, layer)} style={{ ...commonStyle, backgroundColor: layer.shape === "line" ? layer.color : layer.color, borderRadius: layer.shape === "circle" ? "9999px" : layer.shape === "line" ? "9999px" : "2px", height: `${layer.height}%`, minHeight: layer.shape === "line" ? "2px" : undefined }} />;
+              {/* Calques */}
+              {doc.layers.map((l, i) => {
+                if (!l.visible) return null;
+                const selected = l.id === selectedId;
+                return (
+                  <div
+                    key={l.id}
+                    data-layer={l.id}
+                    onPointerDown={(e) => startDrag(e, l, "move")}
+                    onDoubleClick={() => { if (l.kind === "text") { select(l.id); setTimeout(() => textAreaRef.current?.focus(), 60); } }}
+                    style={{
+                      position: "absolute", left: `${l.x}%`, top: `${l.y}%`, width: `${l.w}%`,
+                      height: l.kind === "text" ? "auto" : `${l.h}%`, zIndex: i + 1,
+                      cursor: l.locked ? "default" : "move", touchAction: "none", userSelect: "none",
+                    }}
+                  >
+                    <div style={{ opacity: l.opacity / 100, width: "100%", height: l.kind === "text" ? "auto" : "100%" }}>
+                      {l.kind === "text" && (
+                        <div style={{
+                          fontFamily: l.fontFamily, fontSize: `${((l.fontSize ?? 40) / 1080) * 100}cqw`, fontWeight: l.fontWeight,
+                          textAlign: l.align, color: l.color, lineHeight: 1.2, whiteSpace: "pre-wrap",
+                          textTransform: l.uppercase ? "uppercase" : "none",
+                          textShadow: l.shadow ? "0 0.25cqw 1.2cqw rgba(0,0,0,0.55)" : "none",
+                        }}>{l.text || "\u00A0"}</div>
+                      )}
+                      {l.kind === "image" && (
+                        <img src={l.src} alt={l.name ?? "Image"} draggable={false} style={{ width: "100%", height: "100%", objectFit: l.fit ?? "contain", display: "block", pointerEvents: "none" }} />
+                      )}
+                      {l.kind === "shape" && (
+                        <div style={{ width: "100%", height: "100%", background: l.color, borderRadius: l.shape === "circle" ? "50%" : 0 }} />
+                      )}
+                    </div>
+                    {selected && (
+                      <>
+                        <div className="pointer-events-none absolute inset-0" style={{ outline: `2px ${l.locked ? "solid" : "dashed"} #FF6B00`, outlineOffset: 1 }} />
+                        {!l.locked && (
+                          <span
+                            onPointerDown={(e) => startDrag(e, l, "resize")}
+                            className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-[#FF6B00]"
+                            style={{ touchAction: "none" }}
+                            aria-label="Redimensionner"
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
               })}
 
-              {/* TEXTES */}
+              {/* Guides d'alignement */}
+              {guides.x !== null && <div className="pointer-events-none absolute inset-y-0 w-px bg-[#FF6B00]" style={{ left: `${guides.x}%`, zIndex: 9999 }} />}
+              {guides.y !== null && <div className="pointer-events-none absolute inset-x-0 h-px bg-[#FF6B00]" style={{ top: `${guides.y}%`, zIndex: 9999 }} />}
 
-              {renderTextElement(
-
-                "subtitle",
-
-                text.subtitle
-
+              {/* Invitation à ajouter une photo (non exportée) */}
+              {!doc.bg.image && !selectedId && (
+                <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={() => bgInputRef.current?.click()}
+                  className="absolute left-1/2 top-[4%] -translate-x-1/2 rounded-full border border-dashed border-white/40 bg-black/30 px-4 py-2 text-[11px] font-medium text-white/80 backdrop-blur transition hover:border-[#FF6B00] hover:text-white"
+                  style={{ zIndex: 9998 }}>
+                  + Ajouter une photo de fond
+                </button>
               )}
-
-
-
-              {renderTextElement(
-
-                "title",
-
-                text.title
-
-              )}
-
-
-
-              {renderTextElement(
-
-                "description",
-
-                text.description
-
-              )}
-
-
-
-              {renderTextElement(
-
-                "price",
-
-                text.price
-
-              )}
-
-
-
-              {renderTextElement(
-
-                "date",
-
-                text.date
-
-              )}
-
-
-
-              {/* BARRE D’OUTILS CONTEXTUELLE — édition rapide façon Canva */}
-              {selectedLayer && (
-                <div
-                  className="absolute bottom-3 left-3 right-3 z-[2147483000] max-h-[62%] overflow-y-auto rounded-2xl border border-black/10 bg-white p-3 text-black shadow-[0_12px_40px_rgba(0,0,0,0.28)] sm:left-1/2 sm:right-auto sm:w-[min(520px,calc(100%-24px))] sm:-translate-x-1/2"
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  <div className="mb-3 flex items-center gap-3 border-b border-black/10 pb-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-black text-white">
-                      <span className="text-base">{selectedLayer.type === "text" ? "T" : selectedLayer.type === "image" ? "▧" : "◇"}</span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-bold tracking-tight">{getLayerLabel(selectedLayer.id)}</p>
-                      <p className="mt-0.5 text-[10px] text-black/50">Sélectionné · modifie directement ton élément</p>
-                    </div>
-                    <button type="button" onClick={() => { const layer = selectedLayer; const id = `layer-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; const copy = { ...layer, id, x: Math.min(100 - layer.width, layer.x + 3), y: Math.min(100 - layer.height, layer.y + 3) }; setCustomLayers((layers) => [...layers, copy]); setLayerOrder((order) => [...order, id]); setSelectedLayerId(id); }} className="rounded-lg border border-black/10 px-3 py-2 text-[10px] font-semibold transition hover:bg-black/5" title="Dupliquer cet élément">⧉ Dupliquer</button>
-                    <button type="button" onClick={() => setSelectedLayerId(null)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/5 text-sm transition hover:bg-black/10" aria-label="Fermer les outils">✕</button>
-                  </div>
-
-                  {selectedLayer.type === "text" && (
-                    <div className="mb-3">
-                      <label className="mb-1.5 block text-[9px] font-bold uppercase tracking-[0.14em] text-black/50">Contenu du texte</label>
-                      <textarea rows={2} aria-label="Contenu du texte" value={selectedLayer.text ?? ""} onChange={(event) => updateCustomLayer(selectedLayer.id, { text: event.target.value })} className="w-full resize-y rounded-xl border border-black/10 bg-[#F7F7F7] px-3 py-2.5 text-xs text-black outline-none transition focus:border-black focus:bg-white" />
-                    </div>
-                  )}
-
-                  <div className="mb-3 grid grid-cols-2 gap-2">
-                    {selectedLayer.type !== "image" && (
-                      <label className="flex items-center justify-between gap-2 rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">
-                        Couleur <input aria-label="Couleur" type="color" value={selectedLayer.color} onChange={(event) => updateCustomLayer(selectedLayer.id, { color: event.target.value })} className="h-7 w-9 cursor-pointer rounded-md border border-black/10 bg-white p-0.5" />
-                      </label>
-                    )}
-                    <label className="rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">Opacité <span className="float-right tabular-nums text-black/55">{selectedLayer.opacity}%</span>
-                      <input aria-label="Opacité" type="range" min="0" max="100" value={selectedLayer.opacity} onChange={(event) => updateCustomLayer(selectedLayer.id, { opacity: Number(event.target.value) })} className="mt-2 w-full accent-black" />
-                    </label>
-                    <label className="rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">Largeur <span className="float-right tabular-nums text-black/55">{Math.round(selectedLayer.width)}%</span>
-                      <input aria-label="Largeur" type="range" min="1" max="100" value={selectedLayer.width} onChange={(event) => updateCustomLayer(selectedLayer.id, { width: Number(event.target.value), x: Math.min(selectedLayer.x, 100 - Number(event.target.value)) })} className="mt-2 w-full accent-black" />
-                    </label>
-                    {selectedLayer.type !== "text" && (
-                      <label className="rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">Hauteur <span className="float-right tabular-nums text-black/55">{Math.round(selectedLayer.height)}%</span>
-                        <input aria-label="Hauteur" type="range" min="1" max="100" value={Math.min(100, Math.max(1, selectedLayer.height))} onChange={(event) => updateCustomLayer(selectedLayer.id, { height: Number(event.target.value), y: Math.min(selectedLayer.y, 100 - Number(event.target.value)) })} className="mt-2 w-full accent-black" />
-                      </label>
-                    )}
-                    {selectedLayer.type === "text" && (
-                      <label className="rounded-xl border border-black/10 px-3 py-2.5 text-[10px] font-semibold">Taille du texte <span className="float-right tabular-nums text-black/55">{selectedLayer.fontSize ?? 40}px</span>
-                        <input aria-label="Taille du texte" type="range" min="12" max="160" value={selectedLayer.fontSize ?? 40} onChange={(event) => updateCustomLayer(selectedLayer.id, { fontSize: Number(event.target.value) })} className="mt-2 w-full accent-black" />
-                      </label>
-                    )}
-                  </div>
-
-                  <div className="mb-3 rounded-xl bg-[#F7F7F7] p-2.5">
-                    <p className="mb-2 text-[9px] font-bold uppercase tracking-[0.14em] text-black/50">Position rapide</p>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { x: 0 })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">← Gauche</button>
-                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { x: Math.max(0, (100 - selectedLayer.width) / 2) })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">↔ Centrer</button>
-                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { x: Math.max(0, 100 - selectedLayer.width) })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">Droite →</button>
-                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { y: 0 })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">↑ Haut</button>
-                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { y: Math.max(0, (100 - selectedLayer.height) / 2) })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">↕ Milieu</button>
-                      <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { y: Math.max(0, 100 - selectedLayer.height) })} className="rounded-lg border border-black/10 bg-white px-2 py-2 text-[10px] font-semibold hover:border-black/40">Bas ↓</button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                    <button type="button" onClick={() => moveLayerOrder(selectedLayer.id, "down")} disabled={layerOrder.indexOf(selectedLayer.id) <= 0} className="rounded-xl border border-black/10 bg-white px-3 py-2.5 text-[10px] font-semibold transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-30">↓ Envoyer derrière</button>
-                    <button type="button" onClick={() => moveLayerOrder(selectedLayer.id, "up")} disabled={layerOrder.indexOf(selectedLayer.id) === layerOrder.length - 1} className="rounded-xl bg-black px-3 py-2.5 text-[10px] font-semibold text-white transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-30">↑ Mettre devant</button>
-                    <button type="button" onClick={() => { const id = selectedLayer.id; setCustomLayers((layers) => layers.filter((item) => item.id !== id)); setLayerOrder((order) => order.filter((item) => item !== id)); setSelectedLayerId(null); }} className="rounded-xl border border-red-200 px-3 py-2.5 text-[10px] font-semibold text-red-600 transition hover:bg-red-50" title="Supprimer">✕</button>
-                  </div>
-                </div>
-              )}
-
-              {/* BARRE CONTEXTUELLE POUR LES TEXTES PRÉDÉFINIS */}
-              {!selectedLayer && activeCanvasText && (
-                <div className="absolute bottom-2 left-2 right-2 z-[2147483000] max-h-[55%] overflow-y-auto rounded-xl border-2 border-black bg-white p-3 text-black shadow-2xl" onPointerDown={(event) => event.stopPropagation()}>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-[11px] font-bold">Modifier : {activeCanvasText}</p>
-                      <p className="text-[9px] text-black/55">Outils rapides du texte sélectionné</p>
-                    </div>
-                    <button type="button" onClick={() => setActiveCanvasText(null)} className="rounded-md border border-black/15 px-2 py-1 text-xs text-black hover:bg-black/5" aria-label="Fermer les outils">✕</button>
-                  </div>
-                  <textarea rows={2} aria-label="Contenu du texte sélectionné" value={text[activeCanvasText] ?? ""} onChange={(event) => updateText(activeCanvasText, event.target.value)} className="mb-2 w-full rounded-lg border border-black/15 bg-white px-2 py-2 text-xs text-black outline-none focus:border-black" />
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="rounded-lg border border-black/10 px-2 py-2 text-[10px]">Couleur
-                      <input type="color" value={textStyles[activeCanvasText].color} onChange={(event) => setTextStyles((current) => ({ ...current, [activeCanvasText]: { ...current[activeCanvasText], color: event.target.value } }))} className="ml-2 h-6 w-8 cursor-pointer border-0 bg-transparent align-middle" />
-                    </label>
-                    <label className="rounded-lg border border-black/10 px-2 py-2 text-[10px]">Taille · {textStyles[activeCanvasText].fontSize}px
-                      <input aria-label="Taille du texte" type="range" min="12" max="160" value={textStyles[activeCanvasText].fontSize} onChange={(event) => setTextStyles((current) => ({ ...current, [activeCanvasText]: { ...current[activeCanvasText], fontSize: Number(event.target.value) } }))} className="mt-1 w-full accent-black" />
-                    </label>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => moveLayerOrder(`text:${activeCanvasText}`, "down")} className="rounded-lg border border-black/15 bg-white px-2 py-2 text-[10px] font-semibold text-black hover:bg-black/5">← Derrière</button>
-                    <button type="button" onClick={() => moveLayerOrder(`text:${activeCanvasText}`, "up")} className="rounded-lg border border-black/15 bg-white px-2 py-2 text-[10px] font-semibold text-black hover:bg-black/5">Devant →</button>
-                  </div>
-                </div>
-              )}
-
-              {/* MESSAGE VIDE */}
-
-              {!heroImage && (
-
-                <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 text-center">
-
-                  <p className="text-[9px] uppercase tracking-[0.2em] text-white/20">
-
-                    Ajoute une image
-
-                  </p>
-
-                </div>
-
-              )}
-
             </div>
-
-            </div>
-
           </div>
-
         </main>
 
-
-
-        {/* PANNEAU */}
-
-        <aside className="w-full shrink-0 overflow-y-auto border-t border-white/5 bg-transparent p-3 backdrop-blur-none sm:p-4 lg:max-h-[calc(100vh-4rem)] lg:w-[400px] lg:border-l lg:border-t-0">
-
-          <div className="mb-3 rounded-xl border border-white/10 bg-transparent p-3">
-            <p className="text-xs font-semibold text-white">Crée ton affiche en 3 étapes</p>
-            <p className="mt-1 text-[11px] leading-5 text-white/55">1. Choisis un outil. 2. Clique sur un élément pour le modifier ou fais-le glisser pour le déplacer. 3. Clique sur « Télécharger ».</p>
-          </div>
-
-          <div className="mb-3 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-transparent p-1">
-
-            {[
-
-              { id: "texte", label: "Texte", icon: "T" },
-
-              { id: "images", label: "Photos", icon: "▧" },
-
-              { id: "formes", label: "Éléments", icon: "◇" },
-
-              { id: "format", label: "Format", icon: "□" },
-
-            ].map((tab) => (
-
-              <button
-
-                key={tab.id}
-
-                type="button"
-
-                onClick={() =>
-
-                  setActiveTab(
-
-                    tab.id as "texte" | "images" | "formes" | "format"
-
-                  )
-
-                }
-
-                className={`flex min-h-[66px] flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-[10px] transition ${
-                  activeTab === tab.id
-                    ? "border-[#FFFFFF]/40 bg-[#FFFFFF]/10 text-[#FFFFFF]"
-                    : "border-transparent text-white/45 hover:border-white/10 hover:bg-white/5 hover:text-white"
-                }`}
-
-              >
-
-                <span className="text-base font-bold">{tab.icon}</span>
-
-                <span>{tab.label}</span>
-
+        {/* PANNEAU DE DROITE */}
+        <aside className="w-full shrink-0 border-t border-white/10 bg-[#0F0F0F] lg:max-h-[calc(100vh-4.5rem)] lg:w-[380px] lg:overflow-y-auto lg:border-l lg:border-t-0">
+          <div role="tablist" className="sticky top-0 z-30 grid grid-cols-4 gap-1 border-b border-white/10 bg-[#0F0F0F] p-2">
+            {([
+              ["add", "Ajouter", "＋"],
+              ["edit", "Édition", "✎"],
+              ["background", "Fond", "◐"],
+              ["layers", "Calques", "☰"],
+            ] as [Tab, string, string][]).map(([id, label, icon]) => (
+              <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+                className={`flex flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-[11px] font-medium transition ${tab === id ? "bg-[#FF6B00] text-white" : "text-white/55 hover:bg-white/5 hover:text-white"}`}>
+                <span className="text-base leading-none">{icon}</span>
+                {label}
               </button>
-
             ))}
-
           </div>
 
+          <div className="px-4 pb-8">
+            <input ref={bgInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void handleFiles(e.target.files, "bg"); e.target.value = ""; }} />
+            <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { void handleFiles(e.target.files, "photo"); e.target.value = ""; }} />
+            <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void handleFiles(e.target.files, "logo"); e.target.value = ""; }} />
 
-
-
-          <div className="space-y-3">
-
-
-
-            {activeTab === "texte" && (
+            {/* ───── AJOUTER ───── */}
+            {tab === "add" && (
               <>
-            {/* ================= CONTENU ================= */}
+                <Section title="Texte">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => addText("title")} className={btn + " !py-4"} style={{ fontFamily: F.archivo }}>Titre</button>
+                    <button type="button" onClick={() => addText("subtitle")} className={btn + " !py-4"} style={{ fontWeight: 600 }}>Sous-titre</button>
+                    <button type="button" onClick={() => addText("body")} className={btn + " !py-4"}>Paragraphe</button>
+                    <button type="button" onClick={() => addText("price")} className={btn + " !py-4"} style={{ fontFamily: F.archivo }}>Prix</button>
+                  </div>
+                </Section>
+                <Section title="Images">
+                  <button type="button" onClick={() => photoInputRef.current?.click()} disabled={busy}
+                    className="w-full rounded-lg bg-white px-3 py-3 text-xs font-bold text-black transition hover:bg-white/85 disabled:opacity-60">+ Ajouter une ou plusieurs photos</button>
+                  <button type="button" onClick={() => logoInputRef.current?.click()} disabled={busy} className={btn + " w-full"}>+ Ajouter le logo Qahwa</button>
+                  <p className="text-[11px] leading-4 text-white/45">Les images sont réduites automatiquement pour garder l'éditeur rapide. Pour une photo plein cadre, utilise l'onglet Fond.</p>
+                </Section>
+                <Section title="Formes">
+                  <div className="grid grid-cols-3 gap-2">
+                    <button type="button" onClick={() => addLayer(shapeLayer({ shape: "rectangle" }), true)} className={btn + " !py-3"}>▰ Rectangle</button>
+                    <button type="button" onClick={() => addLayer(shapeLayer({ shape: "circle", h: (34 * W) / H }), true)} className={btn + " !py-3"}>● Cercle</button>
+                    <button type="button" onClick={() => addLayer(shapeLayer({ shape: "line" }), true)} className={btn + " !py-3"}>━ Ligne</button>
+                  </div>
+                  <p className="text-[11px] leading-4 text-white/45">Un rectangle peut servir de bandeau de couleur derrière un texte : il se place automatiquement sous les textes.</p>
+                </Section>
+                <Section title="Raccourcis">
+                  <p className="text-[11px] leading-5 text-white/55">Ctrl+Z annuler · Ctrl+Maj+Z rétablir · Ctrl+D dupliquer · Suppr supprimer · flèches pour déplacer (Maj = plus loin) · Alt en glissant pour désactiver l'aimantation · Ctrl+S enregistrer.</p>
+                </Section>
+              </>
+            )}
 
-            <details
+            {/* ───── ÉDITION ───── */}
+            {tab === "edit" && !sel && (
+              <div className="mt-6 rounded-xl border border-dashed border-white/15 p-6 text-center text-xs leading-5 text-white/55">
+                Aucun élément sélectionné.<br />Clique sur un texte, une image ou une forme de l'affiche, ou choisis-en un dans l'onglet Calques.
+              </div>
+            )}
 
-              className="overflow-hidden rounded-xl border border-white/10 bg-transparent"
-
-              open
-
-            >
-
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
-
-                <div className="flex items-center justify-between">
-
-                  <span>Modifier les textes de l’affiche</span>
-
-                  <span className="text-white/35">
-
-                    +
-
-                  </span>
-
-                </div>
-
-              </summary>
-
-
-
-              <div className="space-y-4 border-t border-white/5 px-4 pb-4 pt-4">
-
-                {data.fields.map(
-
-                  (field) => (
-
-                    <div key={field}>
-
-                      <label className="mb-2 block text-[9px] font-semibold uppercase tracking-[0.14em] text-white/40">
-
-                        {field ===
-
-                        "title"
-
-                          ? "Titre"
-
-                          : field ===
-
-                              "subtitle"
-
-                            ? "Sous-titre"
-
-                            : field ===
-
-                                "description"
-
-                              ? "Description"
-
-                              : field ===
-
-                                  "price"
-
-                                ? "Prix"
-
-                                : "Date"}
-
-                      </label>
-
-
-
-                      <textarea
-
-                        value={text[field]}
-
-                        onChange={(event) =>
-
-                          updateText(
-
-                            field,
-
-                            event.target
-
-                              .value
-
-                          )
-
-                        }
-
-                        rows={
-
-                          field ===
-
-                          "description"
-
-                            ? 3
-
-                            : 1
-
-                        }
-
-                        className="w-full resize-none rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none transition placeholder:text-white/20 focus:border-[#FFFFFF]"
-
-                      />
-
-                    </div>
-
-                  )
-
+            {tab === "edit" && sel && (
+              <>
+                {sel.kind === "text" && (
+                  <>
+                    <Section title="Texte">
+                      <textarea ref={textAreaRef} rows={3} aria-label="Contenu du texte" value={sel.text ?? ""}
+                        onChange={(e) => updateLayer(sel.id, { text: e.target.value }, `text:${sel.id}`)}
+                        className="w-full resize-y rounded-lg border border-white/10 bg-[#121212] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FF6B00]" />
+                    </Section>
+                    <Section title="Police">
+                      <StudioSelect value={sel.fontFamily ?? F.inter} onChange={(v) => updateLayer(sel.id, { fontFamily: v })}
+                        options={FONTS.map((f) => ({ ...f, font: f.value }))} />
+                      <Range label="Taille" value={sel.fontSize ?? 40} min={12} max={300} unit=" px" onChange={(v) => updateLayer(sel.id, { fontSize: v })} />
+                      <StudioSelect value={String(sel.fontWeight ?? 700)} onChange={(v) => updateLayer(sel.id, { fontWeight: Number(v) })} options={WEIGHTS} />
+                      <Seg<Align> value={sel.align ?? "left"} onChange={(v) => updateLayer(sel.id, { align: v })}
+                        options={[{ label: "Gauche", value: "left" }, { label: "Centre", value: "center" }, { label: "Droite", value: "right" }]} />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Toggle label="Majuscules" on={!!sel.uppercase} onChange={(v) => updateLayer(sel.id, { uppercase: v })} />
+                        <Toggle label="Ombre" on={!!sel.shadow} onChange={(v) => updateLayer(sel.id, { shadow: v })} />
+                      </div>
+                    </Section>
+                  </>
                 )}
 
-              </div>
+                {sel.kind !== "image" && (
+                  <Section title="Couleur">
+                    <ColorField value={sel.color} onChange={(v) => updateLayer(sel.id, { color: v })} />
+                  </Section>
+                )}
 
-            </details>
+                {sel.kind === "image" && (
+                  <Section title="Affichage de l'image">
+                    <Seg<"contain" | "cover"> value={sel.fit ?? "contain"} onChange={(v) => updateLayer(sel.id, { fit: v })}
+                      options={[{ label: "Image entière", value: "contain" }, { label: "Remplir le cadre", value: "cover" }]} />
+                  </Section>
+                )}
 
+                <Section title="Taille et transparence">
+                  <Range label="Transparence" value={100 - sel.opacity} min={0} max={95} unit="%" onChange={(v) => updateLayer(sel.id, { opacity: 100 - v })} />
+                  <Range label="Largeur" value={sel.w} min={3} max={100} unit="%" onChange={(v) => updateLayer(sel.id, { w: v, x: Math.min(sel.x, 100 - v) })} />
+                  {sel.kind !== "text" && (
+                    <Range label="Hauteur" value={sel.h} min={0.3} max={100} step={0.1} unit="%" onChange={(v) => updateLayer(sel.id, { h: v, y: Math.min(sel.y, 100 - v) })} />
+                  )}
+                  {sel.kind === "shape" && sel.shape === "rectangle" && (
+                    <button type="button" className={btn + " w-full"} onClick={() => updateLayer(sel.id, { x: 0, y: 0, w: 100, h: 100 })}>Couvrir toute l'affiche</button>
+                  )}
+                </Section>
 
-
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white"><div className="flex items-center justify-between"><span>Ajouter un texte libre</span><span className="text-white/35">+</span></div></summary>
-              <div className="space-y-3 border-t border-white/5 px-4 pb-4 pt-4">
-                <input value={newTextValue} onChange={(event) => setNewTextValue(event.target.value)} placeholder="Écris ton texte" className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white outline-none focus:border-[#FFFFFF]" />
-                <button type="button" onClick={addCustomText} className="w-full rounded-lg bg-white px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-black hover:bg-white/85">+ Ajouter ce texte</button>
-              </div>
-            </details>
-
-            {/* ================= POLICE ================= */}
-
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
-
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
-
-                <div className="flex items-center justify-between">
-
-                  <span>Style du texte</span>
-
-                  <span className="text-white/35">
-
-                    +
-
-                  </span>
-
-                </div>
-
-              </summary>
-
-
-
-              <div className="space-y-4 border-t border-white/5 px-4 pb-4 pt-4">
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Élément
-
-                  </label>
-
-
-
-                  <StudioDarkSelect
-                    value={selectedElement}
-                    onChange={(value) => setSelectedElement(value as TextElement)}
-                    options={data.fields.map((field) => ({
-                      value: field,
-                      label:
-                        field === "title" ? "Titre"
-                        : field === "subtitle" ? "Sous-titre"
-                        : field === "description" ? "Description"
-                        : field === "price" ? "Prix"
-                        : "Date",
-                    }))}
-                  />
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button type="button" onClick={() => { setText((current) => ({ ...current, [selectedElement]: "" })); setSelectedLayerId(null); }} className="rounded-lg border border-red-400/30 bg-transparent px-3 py-2 text-[10px] font-semibold text-red-300 hover:bg-red-500/10">Supprimer ce texte</button>
-                    <button type="button" onClick={() => setText((current) => ({ ...current, [selectedElement]: selectedElement === "title" ? "Nouveau produit" : selectedElement === "subtitle" ? "Une nouvelle création Qahwa" : selectedElement === "description" ? "Découvrez notre nouvelle création." : selectedElement === "price" ? "850 DA" : "Samedi 12 octobre" }))} className="rounded-lg border border-white/15 bg-transparent px-3 py-2 text-[10px] font-semibold text-white/75 hover:bg-white/10">Restaurer le texte</button>
+                <Section title="Position">
+                  <div className="grid grid-cols-3 gap-2">
+                    {([["⇤ Gauche", "l"], ["↔ Centre", "c"], ["⇥ Droite", "r"], ["⤒ Haut", "t"], ["↕ Milieu", "m"], ["⤓ Bas", "b"]] as const).map(([label, a]) => (
+                      <button key={a} type="button" className={btn + " !px-1"} onClick={() => alignLayer(sel.id, a)}>{label}</button>
+                    ))}
                   </div>
+                </Section>
 
-                </div>
+                <Section title="Élément">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" className={btn} onClick={() => updateLayer(sel.id, { locked: !sel.locked })}>{sel.locked ? "🔓 Déverrouiller" : "🔒 Verrouiller"}</button>
+                    <button type="button" className={btn} onClick={() => duplicateLayer(sel.id)}>Dupliquer</button>
+                    <button type="button" className={btn} onClick={() => moveLayer(sel.id, "back")}>Tout au fond</button>
+                    <button type="button" className={btn} onClick={() => moveLayer(sel.id, "front")}>Tout devant</button>
+                  </div>
+                  <button type="button" onClick={() => removeLayer(sel.id)}
+                    className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20">Supprimer cet élément</button>
+                </Section>
+              </>
+            )}
 
-
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Famille
-
-                  </label>
-
-
-
-                  <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-white/10 bg-transparent p-1.5" aria-label="Choisir une police, aperçu instantané">
-                    {[
-                      { label: "Arial", value: "Arial" },
-                      { label: "Arial Black", value: "Arial Black" },
-                      { label: "Helvetica", value: "Helvetica" },
-                      { label: "Verdana", value: "Verdana" },
-                      { label: "Tahoma", value: "Tahoma" },
-                      { label: "Trebuchet MS", value: "Trebuchet MS" },
-                      { label: "Georgia", value: "Georgia" },
-                      { label: "Times New Roman", value: "Times New Roman" },
-                      { label: "Garamond", value: "Garamond" },
-                      { label: "Palatino Linotype", value: "Palatino Linotype" },
-                      { label: "Courier New", value: "Courier New" },
-                      { label: "Lucida Sans", value: "Lucida Sans" },
-                      { label: "Impact", value: "Impact" },
-                      { label: "Comic Sans MS", value: "Comic Sans MS" },
-                      { label: "Inter", value: "Inter, Arial, sans-serif" },
-                      { label: "Roboto", value: "Roboto, Arial, sans-serif" },
-                      { label: "Montserrat", value: "Montserrat, Arial, sans-serif" },
-                      { label: "Poppins", value: "Poppins, Arial, sans-serif" },
-                      { label: "Open Sans", value: "Open Sans, Arial, sans-serif" },
-                      { label: "Lato", value: "Lato, Arial, sans-serif" },
-                      { label: "Oswald", value: "Oswald, Arial, sans-serif" },
-                      { label: "Playfair Display", value: "Playfair Display, Georgia, serif" },
-                      { label: "Caveat Brush ✦", value: '"Caveat Brush", cursive' },
-                      { label: "Bebas Neue", value: "Bebas Neue, Impact, sans-serif" },
-                      { label: "Caveat Brush ✦", value: '"Caveat Brush", cursive' },
-                    ].map((font) => (
-                      <button key={font.value} type="button" onClick={() => updateSelectedStyle({ fontFamily: font.value })}
-                        className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${selectedStyle.fontFamily === font.value ? "border-white/60 bg-white/10 text-white" : "border-transparent bg-transparent text-white/75 hover:border-white/20 hover:bg-white/5 hover:text-white"}`}
-                        aria-pressed={selectedStyle.fontFamily === font.value}>
-                        <span style={{ fontFamily: font.value }} className="text-sm">{font.label}</span>
-                        <span style={{ fontFamily: font.value }} className="max-w-[55%] truncate text-xs text-white/45">Aa Qahwa</span>
+            {/* ───── FOND ───── */}
+            {tab === "background" && (
+              <>
+                <Section title="Couleurs prêtes à l'emploi">
+                  <div className="grid grid-cols-3 gap-2">
+                    {BG_PRESETS.map((p) => (
+                      <button key={p.name} type="button" onClick={() => updateBg({ c1: p.c1, c2: p.c2, angle: p.angle })}
+                        className="overflow-hidden rounded-lg border border-white/15 text-[11px] transition hover:border-[#FF6B00]">
+                        <span className="block h-12" style={{ background: bgCss({ ...doc.bg, c1: p.c1, c2: p.c2, angle: p.angle }) }} />
+                        <span className="block bg-[#121212] py-1.5 text-white/75">{p.name}</span>
                       </button>
                     ))}
                   </div>
-                  <p className="mt-2 text-[10px] leading-4 text-white/45">Clique sur une police : l’aperçu sur l’affiche change immédiatement. La liste reste ouverte pour comparer les styles.</p>
-
-                </div>
-
-
-
-                <div>
-
-                  <div className="mb-2 flex items-center justify-between">
-
-                    <label className="text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                      Taille
-
-                    </label>
-
-
-
-                    <span className="text-[10px] text-white/50">
-
-                      {
-
-                        selectedStyle.fontSize
-
-                      }{" "}
-
-                      px
-
-                    </span>
-
+                </Section>
+                <Section title="Couleurs personnalisées">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><p className="mb-1.5 text-[11px] text-white/60">Couleur 1</p><input type="color" aria-label="Couleur 1" value={doc.bg.c1} onChange={(e) => updateBg({ c1: e.target.value })} className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-[#121212] p-1" /></div>
+                    <div><p className="mb-1.5 text-[11px] text-white/60">Couleur 2</p><input type="color" aria-label="Couleur 2" value={doc.bg.c2} onChange={(e) => updateBg({ c2: e.target.value })} className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-[#121212] p-1" /></div>
                   </div>
-
-
-
-                  <input
-
-                    type="range"
-
-                    min="10"
-
-                    max="100"
-
-                    value={
-
-                      selectedStyle.fontSize
-
-                    }
-
-                    onChange={(event) =>
-
-                      updateSelectedStyle({
-
-                        fontSize:
-
-                          Number(
-
-                            event.target
-
-                              .value
-
-                          ),
-
-                      })
-
-                    }
-
-                    className="w-full accent-[#FFFFFF]"
-
-                  />
-
-                </div>
-
-
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Épaisseur
-
-                  </label>
-
-
-
-                  <StudioDarkSelect
-                    value={String(selectedStyle.fontWeight)}
-                    onChange={(value) => updateSelectedStyle({ fontWeight: Number(value) })}
-                    options={[
-                      { label: "Normal", value: "400" },
-                      { label: "Medium", value: "500" },
-                      { label: "Semi-bold", value: "600" },
-                      { label: "Bold", value: "700" },
-                      { label: "Extra-bold", value: "800" },
-                    ]}
-                  />
-
-                </div>
-
-
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Alignement
-
-                  </label>
-
-
-
-                  <div className="grid grid-cols-3 gap-2">
-
-                    {(
-
-                      [
-
-                        "left",
-
-                        "center",
-
-                        "right",
-
-                      ] as TextAlign[]
-
-                    ).map(
-
-                      (align) => (
-
-                        <button
-
-                          key={align}
-
-                          type="button"
-
-                          onClick={() =>
-
-                            updateSelectedStyle(
-
-                              {
-
-                                textAlign:
-
-                                  align,
-
-                              }
-
-                            )
-
-                          }
-
-                          className={`rounded-lg border px-3 py-2 text-[9px] uppercase ${
-
-                            selectedStyle.textAlign ===
-
-                            align
-
-                              ? "border-[#FFFFFF] bg-[#FFFFFF]/10 text-[#FFFFFF]"
-
-                              : "border-white/10 bg-[#101010] text-white/50"
-
-                          }`}
-
-                        >
-
-                          {align ===
-
-                          "left"
-
-                            ? "Gauche"
-
-                            : align ===
-
-                                "center"
-
-                              ? "Centre"
-
-                              : "Droite"}
-
-                        </button>
-
-                      )
-
-                    )}
-
-                  </div>
-
-                </div>
-
-              </div>
-
-            </details>
-
-
-
-            {/* ================= POSITION ================= */}
-
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
-
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
-
-                <div className="flex items-center justify-between">
-
-                  <span>POSITION</span>
-
-                  <span className="text-white/35">
-
-                    +
-
-                  </span>
-
-                </div>
-
-              </summary>
-
-
-
-              <div className="space-y-4 border-t border-white/5 px-4 pb-4 pt-4">
-
-                <div>
-
-                  <div className="mb-2 flex items-center justify-between">
-
-                    <label className="text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                      Horizontal
-
-                    </label>
-
-
-
-                    <span className="text-[10px] text-white/50">
-
-                      {Math.round(
-
-                        selectedPosition.x
-
-                      )}
-
-                      %
-
-                    </span>
-
-                  </div>
-
-
-
-                  <input
-
-                    type="range"
-
-                    min="0"
-
-                    max="84"
-
-                    step="0.5"
-
-                    value={
-
-                      selectedPosition.x
-
-                    }
-
-                    onChange={(event) =>
-
-                      updateSelectedPosition({
-
-                        x: Number(
-
-                          event.target.value
-
-                        ),
-
-                      })
-
-                    }
-
-                    className="w-full accent-[#FFFFFF]"
-
-                  />
-
-                </div>
-
-
-
-                <div>
-
-                  <div className="mb-2 flex items-center justify-between">
-
-                    <label className="text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                      Vertical
-
-                    </label>
-
-
-
-                    <span className="text-[10px] text-white/50">
-
-                      {Math.round(
-
-                        selectedPosition.y
-
-                      )}
-
-                      %
-
-                    </span>
-
-                  </div>
-
-
-
-                  <input
-
-                    type="range"
-
-                    min="0"
-
-                    max="94"
-
-                    step="0.5"
-
-                    value={
-
-                      selectedPosition.y
-
-                    }
-
-                    onChange={(event) =>
-
-                      updateSelectedPosition({
-
-                        y: Number(
-
-                          event.target.value
-
-                        ),
-
-                      })
-
-                    }
-
-                    className="w-full accent-[#FFFFFF]"
-
-                  />
-
-                </div>
-
-
-
-                <button
-
-                  type="button"
-
-                  onClick={
-
-                    resetSelectedPosition
-
-                  }
-
-                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/55 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]"
-
-                >
-
-                  Réinitialiser la position
-
-                </button>
-
-              </div>
-
-            </details>
-
-
-
-            {/* ================= COULEUR ================= */}
-
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
-
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
-
-                <div className="flex items-center justify-between">
-
-                  <span>COULEUR</span>
-
-                  <span className="text-white/35">
-
-                    +
-
-                  </span>
-
-                </div>
-
-              </summary>
-
-
-
-              <div className="space-y-4 border-t border-white/5 px-4 pb-4 pt-4">
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Couleur du texte
-
-                  </label>
-
-
-
-                  <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-[#101010] p-2">
-
-                    <input
-
-                      type="color"
-
-                      value={
-
-                        selectedStyle.color
-
-                      }
-
-                      onChange={(event) =>
-
-                        updateSelectedStyle({
-
-                          color:
-
-                            event.target
-
-                              .value,
-
-                        })
-
-                      }
-
-                      className="h-9 w-12 cursor-pointer rounded border-0 bg-transparent"
-
-                    />
-
-
-
-                    <span className="text-xs uppercase text-white/60">
-
-                      {
-
-                        selectedStyle.color
-
-                      }
-
-                    </span>
-
-                  </div>
-
-                </div>
-
-
-
-                <div className="grid grid-cols-5 gap-2">
-
-                  {[
-
-                    "#FFFFFF",
-
-                    "#000000",
-
-                    "#FFFFFF",
-
-                    "#FFF3E8",
-
-                    "#9A9A9A",
-
-                  ].map(
-
-                    (color) => (
-
-                      <button
-
-                        key={color}
-
-                        type="button"
-
-                        onClick={() =>
-
-                          updateSelectedStyle(
-
-                            { color }
-
-                          )
-
-                        }
-
-                        className="h-8 rounded border border-white/10"
-
-                        style={{
-
-                          backgroundColor:
-
-                            color,
-
-                        }}
-
-                        aria-label={
-
-                          color
-
-                        }
-
-                      />
-
-                    )
-
+                  <Range label="Angle du dégradé" value={doc.bg.angle} min={0} max={360} unit="°" onChange={(v) => updateBg({ angle: v })} />
+                  <button type="button" className={btn + " w-full"} onClick={() => updateBg({ c2: doc.bg.c1 })}>Couleur unie (sans dégradé)</button>
+                </Section>
+                <Section title="Photo de fond">
+                  <button type="button" onClick={() => bgInputRef.current?.click()} disabled={busy} className={btn + " w-full"}>
+                    {doc.bg.image ? "Changer la photo" : "+ Ajouter une photo de fond"}
+                  </button>
+                  {doc.bg.image && (
+                    <>
+                      <div className="relative overflow-hidden rounded-lg border border-white/10">
+                        <img src={doc.bg.image} alt="" className="h-32 w-full object-cover" />
+                      </div>
+                      <Range label="Voile sombre (pour lire le texte)" value={doc.bg.overlay} min={0} max={100} unit="%" onChange={(v) => updateBg({ overlay: v })} />
+                      <button type="button" onClick={() => updateBg({ image: null })}
+                        className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-semibold text-red-300 hover:bg-red-500/20">Retirer la photo</button>
+                    </>
                   )}
-
-                </div>
-
-              </div>
-
-            </details>
-
-
-
+                </Section>
               </>
             )}
 
-            {activeTab === "images" && (
-              <>
-            {/* ================= HERO ================= */}
-
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
-
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
-
-                <div className="flex items-center justify-between">
-
-                  <span>HERO</span>
-
-                  <span className="text-white/35">
-
-                    +
-
-                  </span>
-
+            {/* ───── CALQUES ───── */}
+            {tab === "layers" && (
+              <Section title={`Calques (${doc.layers.length}) · du premier plan au fond`}>
+                {doc.layers.length === 0 && <p className="text-xs text-white/45">Rien sur l'affiche pour l'instant. Ajoute un texte, une photo ou une forme.</p>}
+                <div className="space-y-1.5">
+                  {[...doc.layers].reverse().map((l) => {
+                    const index = doc.layers.findIndex((x) => x.id === l.id);
+                    return (
+                      <div key={l.id} draggable
+                        onDragStart={() => setDragLayerId(l.id)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => { if (dragLayerId) reorderLayer(dragLayerId, l.id); setDragLayerId(null); }}
+                        className={`flex items-center gap-1.5 rounded-lg border p-1.5 ${l.id === selectedId ? "border-[#FF6B00] bg-[#FF6B00]/10" : "border-white/10 bg-[#121212]"} ${l.visible ? "" : "opacity-50"}`}>
+                        <span className="w-4 cursor-grab text-center text-white/30" aria-hidden="true">⋮⋮</span>
+                        <button type="button" onClick={() => select(l.id, false)} className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs">
+                          <span className="w-4 shrink-0 text-center text-white/50">{layerIcon(l)}</span>
+                          <span className="truncate">{layerLabel(l)}</span>
+                        </button>
+                        <button type="button" title={l.visible ? "Masquer" : "Afficher"} onClick={() => updateLayer(l.id, { visible: !l.visible })} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white">{l.visible ? "👁" : "—"}</button>
+                        <button type="button" title={l.locked ? "Déverrouiller" : "Verrouiller"} onClick={() => updateLayer(l.id, { locked: !l.locked })} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white">{l.locked ? "🔒" : "🔓"}</button>
+                        <button type="button" aria-label="Monter" disabled={index === doc.layers.length - 1} onClick={() => moveLayer(l.id, "up")} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 disabled:opacity-20">↑</button>
+                        <button type="button" aria-label="Descendre" disabled={index === 0} onClick={() => moveLayer(l.id, "down")} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 disabled:opacity-20">↓</button>
+                      </div>
+                    );
+                  })}
                 </div>
-
-              </summary>
-
-
-
-              <div className="space-y-3 border-t border-white/5 px-4 pb-4 pt-4">
-
-                <input
-
-                  ref={heroInputRef}
-
-                  type="file"
-
-                  accept="image/*"
-
-                  onChange={
-
-                    handleImageChange
-
-                  }
-
-                  className="hidden"
-
-                />
-
-
-
-                <button
-
-                  type="button"
-
-                  onClick={() =>
-
-                    heroInputRef.current?.click()
-
-                  }
-
-                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/60 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]"
-
-                >
-
-                  {heroImage
-
-                    ? "Changer l'image"
-
-                    : "Ajouter une image"}
-
-                </button>
-
-
-
-                {heroImage && (
-
-                  <div className="relative overflow-hidden rounded-lg border border-white/10">
-
-                    <img
-
-                      src={heroImage}
-
-                      alt=""
-
-                      className="h-32 w-full object-cover"
-
-                    />
-
-
-
-                    <button
-
-                      type="button"
-
-                      onClick={() =>
-
-                        setHeroImage(
-
-                          null
-
-                        )
-
-                      }
-
-                      className="absolute right-2 top-2 rounded-md bg-black/70 px-2 py-1 text-[8px] uppercase text-white/70 hover:text-white"
-
-                    >
-
-                      Supprimer
-
-                    </button>
-
-                  </div>
-
-                )}
-
-              </div>
-
-            </details>
-
-
-
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent" open>
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white"><div className="flex items-center justify-between"><span>IMAGES SUPPLÉMENTAIRES</span><span className="text-white/35">+</span></div></summary>
-              <div className="space-y-3 border-t border-white/5 px-4 pb-4 pt-4">
-                <input ref={extraImagesInputRef} type="file" accept="image/*" multiple onChange={handleExtraImagesChange} className="hidden" />
-                <button type="button" onClick={() => extraImagesInputRef.current?.click()} className="w-full rounded-lg bg-white px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-black hover:bg-white/85">+ Ajouter une ou plusieurs images</button>
-                <p className="text-[10px] leading-4 text-white/40">Chaque image ajoutée apparaît sur l’affiche. Déplace-la directement avec la souris ou le doigt.</p>
-                {customLayers.filter((layer) => layer.type === "image").map((layer, index) => <div key={layer.id} className={`flex items-center gap-2 rounded-lg border p-2 ${selectedLayerId === layer.id ? "border-[#FFFFFF]" : "border-white/10"}`}><button type="button" onClick={() => setSelectedLayerId(layer.id)} className="min-w-0 flex-1 truncate text-left text-xs text-white">Image supplémentaire {index + 1}</button><button type="button" onClick={() => { setCustomLayers((layers) => layers.filter((item) => item.id !== layer.id)); setLayerOrder((order) => order.filter((id) => id !== layer.id)); if (selectedLayerId === layer.id) setSelectedLayerId(null); }} className="rounded px-2 py-1 text-xs text-white/50 hover:bg-white/10 hover:text-white">Supprimer</button></div>)}
-              </div>
-            </details>
-
-            {/* ================= LOGO ================= */}
-
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
-
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
-
-                <div className="flex items-center justify-between">
-
-                  <span>LOGO</span>
-
-                  <span className="text-white/35">
-
-                    +
-
-                  </span>
-
-                </div>
-
-              </summary>
-
-
-
-              <div className="space-y-4 border-t border-white/5 px-4 pb-4 pt-4">
-
-                <input
-
-                  ref={logoInputRef}
-
-                  type="file"
-
-                  accept="image/*"
-
-                  onChange={
-
-                    handleLogoChange
-
-                  }
-
-                  className="hidden"
-
-                />
-
-
-
-                <button
-
-                  type="button"
-
-                  onClick={() =>
-
-                    logoInputRef.current?.click()
-
-                  }
-
-                  className="w-full rounded-lg border border-white/10 bg-[#101010] px-4 py-3 text-[9px] font-semibold uppercase tracking-[0.12em] text-white/60 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]"
-
-                >
-
-                  {logoImage
-
-                    ? "Changer le logo"
-
-                    : "Ajouter le logo"}
-
-                </button>
-
-
-
-                {logoImage && (
-
-                  <div className="flex items-center justify-center rounded-lg border border-white/10 bg-[#101010] p-4">
-
-                    <img
-
-                      src={logoImage}
-
-                      alt=""
-
-                      className="max-h-20 max-w-full object-contain"
-
-                    />
-
-                  </div>
-
-                )}
-
-                {logoImage && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setSelectedLayerId("logo")} className="rounded-lg border border-white/15 bg-transparent px-3 py-2.5 text-[10px] font-semibold text-white hover:bg-white/10">Sélectionner le logo</button>
-                    <button type="button" onClick={() => { setLogoImage(null); setSelectedLayerId(null); }} className="rounded-lg border border-red-400/30 bg-transparent px-3 py-2.5 text-[10px] font-semibold text-red-300 hover:bg-red-500/10">Supprimer le logo</button>
-                    <button type="button" onClick={() => moveLayerOrder("logo", "down")} className="rounded-lg border border-white/15 bg-transparent px-3 py-2.5 text-[10px] font-semibold text-white/75 hover:bg-white/10">Envoyer derrière</button>
-                    <button type="button" onClick={() => moveLayerOrder("logo", "up")} className="rounded-lg border border-white/15 bg-transparent px-3 py-2.5 text-[10px] font-semibold text-white/75 hover:bg-white/10">Mettre devant</button>
-                  </div>
-                )}
-
-                <div>
-
-                  <div className="mb-2 flex items-center justify-between">
-
-                    <label className="text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                      Taille
-
-                    </label>
-
-
-
-                    <span className="text-[10px] text-white/50">
-
-                      {logoSize} px
-
-                    </span>
-
-                  </div>
-
-
-
-                  <input
-
-                    type="range"
-
-                    min="30"
-
-                    max="180"
-
-                    value={logoSize}
-
-                    onChange={(event) =>
-
-                      setLogoSize(
-
-                        Number(
-
-                          event.target.value
-
-                        )
-
-                      )
-
-                    }
-
-                    className="w-full accent-[#FFFFFF]"
-
-                  />
-
-                </div>
-
-
-
-                <div>
-
-                  <div className="mb-2 flex items-center justify-between">
-
-                    <label className="text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                      Transparence
-
-                    </label>
-
-                    <span className="text-[10px] text-white/50">{logoOpacity}%</span>
-
-                  </div>
-
-                  <input
-
-                    type="range"
-
-                    min="10"
-
-                    max="100"
-
-                    value={logoOpacity}
-
-                    onChange={(event) => setLogoOpacity(Number(event.target.value))}
-
-                    className="w-full accent-[#FFFFFF]"
-
-                  />
-
-                </div>
-
-
-
-                <div className="space-y-3 rounded-xl border border-white/10 bg-transparent p-3">
-                  <label className="block text-[10px] text-white/70">Position horizontale <span className="float-right tabular-nums">{Math.round(logoX)}%</span>
-                    <input type="range" min="0" max="95" value={logoX} onChange={(event) => setLogoX(Number(event.target.value))} className="mt-2 w-full accent-white" />
-                  </label>
-                  <label className="block text-[10px] text-white/70">Position verticale <span className="float-right tabular-nums">{Math.round(logoY)}%</span>
-                    <input type="range" min="0" max="96" value={logoY} onChange={(event) => setLogoY(Number(event.target.value))} className="mt-2 w-full accent-white" />
-                  </label>
-                </div>
-
-                <div>
-
-                  <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">
-
-                    Position prédéfinie
-
-                  </label>
-
-
-
-                  <select
-
-                    value={logoPosition}
-
-                    onChange={(event) => {
-                      const position = event.target.value as LogoPosition;
-                      setLogoPosition(position);
-                      const positions: Record<LogoPosition, { x: number; y: number }> = {
-                        "top-left": { x: 3, y: 3 },
-                        "top-center": { x: 46, y: 3 },
-                        "top-right": { x: 90, y: 3 },
-                        "bottom-left": { x: 3, y: 88 },
-                        "bottom-center": { x: 46, y: 88 },
-                        "bottom-right": { x: 90, y: 88 },
-                      };
-                      setLogoX(positions[position].x);
-                      setLogoY(positions[position].y);
-                    }}
-
-                    className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2.5 text-xs text-white [color-scheme:dark] accent-[#FFFFFF] outline-none focus:border-[#FFFFFF]"
-
-                  >
-
-                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="top-left">
-
-                      Haut gauche
-
-                    </option>
-
-
-
-                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="top-center">
-
-                      Haut centre
-
-                    </option>
-
-
-
-                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="top-right">
-
-                      Haut droite
-
-                    </option>
-
-
-
-                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="bottom-left">
-
-                      Bas gauche
-
-                    </option>
-
-
-
-                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="bottom-center">
-
-                      Bas centre
-
-                    </option>
-
-
-
-                    <option className="bg-[#101010] text-white checked:bg-[#FFFFFF] checked:text-white" value="bottom-right">
-
-                      Bas droite
-
-                    </option>
-
-                  </select>
-
-                </div>
-
-              </div>
-
-            </details>
-
-
-
-              </>
+                <p className="text-[11px] leading-4 text-white/45">Glisse une ligne pour changer l'ordre. L'élément tout en haut de la liste est devant les autres.</p>
+              </Section>
             )}
-
-            {activeTab === "format" && (
-              <>
-            {/* ================= FORMAT ================= */}
-
-            <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
-
-              <summary className="cursor-pointer list-none px-4 py-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
-
-                <div className="flex items-center justify-between">
-
-                  <span>FORMAT</span>
-
-                  <span className="text-white/35">
-
-                    +
-
-                  </span>
-
-                </div>
-
-              </summary>
-
-
-
-              <div className="space-y-3 border-t border-white/5 px-4 pb-4 pt-4">
-
-                <div className="rounded-lg border border-white/10 bg-[#101010] p-3">
-
-                  <p className="text-[9px] uppercase tracking-[0.14em] text-white/35">
-
-                    Format
-
-                  </p>
-
-
-
-                  <p className="mt-1 text-xs text-white">
-
-                    {data.format}
-
-                  </p>
-
-                </div>
-
-
-
-                <div className="grid grid-cols-2 gap-3">
-
-                  <div className="rounded-lg border border-white/10 bg-[#101010] p-3">
-
-                    <p className="text-[9px] uppercase tracking-[0.14em] text-white/35">
-
-                      Largeur
-
-                    </p>
-
-
-
-                    <p className="mt-1 text-xs text-white">
-
-                      {data.width} px
-
-                    </p>
-
-                  </div>
-
-
-
-                  <div className="rounded-lg border border-white/10 bg-[#101010] p-3">
-
-                    <p className="text-[9px] uppercase tracking-[0.14em] text-white/35">
-
-                      Hauteur
-
-                    </p>
-
-
-
-                    <p className="mt-1 text-xs text-white">
-
-                      {data.height} px
-
-                    </p>
-
-                  </div>
-
-                </div>
-
-
-
-                <div className="rounded-lg border border-white/10 bg-[#101010] p-3">
-
-                  <p className="text-[9px] uppercase tracking-[0.14em] text-white/35">
-
-                    Ratio
-
-                  </p>
-
-
-
-                  <p className="mt-1 text-xs text-white">
-
-                    {data.ratio ===
-
-                    "aspect-[9/16]"
-
-                      ? "9 : 16"
-
-                      : "4 : 5"}
-
-                  </p>
-
-                </div>
-
-              </div>
-
-            </details>
-              </>
-            )}
-
-            {activeTab === "formes" && (
-              <div className="space-y-3">
-                <details className="overflow-hidden rounded-xl border border-white/10 bg-transparent">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 text-xs font-semibold text-white">
-                    <span>Options avancées : avant / arrière</span>
-                    <span className="text-[10px] font-normal text-white/40">Calques +</span>
-                  </summary>
-                  <div className="border-t border-white/5 p-4">
-                    <p className="mb-3 text-[10px] leading-4 text-white/45">Pour faire passer un élément devant ou derrière un autre, ouvre cette section.</p>
-                  <div className="space-y-1.5">
-                    {[...layerOrder].reverse().map((id) => {
-                      const index = layerOrder.indexOf(id);
-                      const isCustom = customLayers.some((layer) => layer.id === id);
-                      const isText = id.startsWith("text:");
-                      const available = id === "background" || id === "overlay" ||
-                        (id === "logo" && !!logoImage) ||
-                        (isText && data.fields.includes(id.slice(5) as TextElement)) || isCustom;
-                      if (!available) return null;
-                      return (
-                        <div key={id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#101010] p-2">
-                          <span className="w-5 shrink-0 text-center text-[9px] text-white/35">{index + 1}</span>
-                          <span className="min-w-0 flex-1 truncate text-[10px] text-white/80">{getLayerLabel(id)}</span>
-                          <button type="button" aria-label={`Envoyer ${getLayerLabel(id)} derrière`} onClick={() => moveLayerOrder(id, "down")} disabled={index === 0} className="rounded border border-white/10 px-2 py-1 text-[10px] text-white/70 hover:border-[#FFFFFF] hover:text-[#FFFFFF] disabled:opacity-25">↓</button>
-                          <button type="button" aria-label={`Amener ${getLayerLabel(id)} devant`} onClick={() => moveLayerOrder(id, "up")} disabled={index === layerOrder.length - 1} className="rounded border border-white/10 px-2 py-1 text-[10px] text-white/70 hover:border-[#FFFFFF] hover:text-[#FFFFFF] disabled:opacity-25">↑</button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  </div>
-                </details>
-                <div className="rounded-xl border border-white/10 bg-[#1B1B1B] p-4">
-                  <div className="mb-3 flex items-center gap-2"><span className="text-lg text-[#FFFFFF]">◇</span><h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Ajouter une forme</h2></div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button type="button" onClick={() => addShape("rectangle")} className="rounded-lg border border-white/10 bg-[#101010] px-2 py-3 text-[10px] text-white/80 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]">▰ Rectangle</button>
-                    <button type="button" onClick={() => addShape("circle")} className="rounded-lg border border-white/10 bg-[#101010] px-2 py-3 text-[10px] text-white/80 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]">● Cercle</button>
-                    <button type="button" onClick={() => addShape("line")} className="rounded-lg border border-white/10 bg-[#101010] px-2 py-3 text-[10px] text-white/80 transition hover:border-[#FFFFFF] hover:text-[#FFFFFF]">━ Ligne</button>
-                  </div>
-                  <p className="mt-3 text-[10px] leading-4 text-white/45">Choisis une forme pour l’ajouter. Clique ensuite dessus dans l’aperçu ou dans la liste pour modifier sa couleur, sa taille, sa position ou sa transparence. Un rectangle peut couvrir toute l’affiche.</p>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-[#1B1B1B] p-4">
-                  <div className="mb-3 flex items-center justify-between"><h2 className="text-xs font-semibold uppercase tracking-[0.12em]">Éléments ajoutés</h2><span className="text-[10px] text-white/40">{customLayers.length}</span></div>
-                  {customLayers.length === 0 ? <p className="text-xs text-white/40">Ajoute une forme, une image ou un texte pour commencer.</p> : <div className="space-y-2">{customLayers.map((layer, index) => <div key={layer.id} className={`flex items-center gap-2 rounded-lg border p-2 ${selectedLayerId === layer.id ? "border-[#FFFFFF] bg-[#FFFFFF]/5" : "border-white/10"}`}><button type="button" onClick={() => setSelectedLayerId(layer.id)} className="min-w-0 flex-1 truncate text-left text-xs text-white">{layer.type === "text" ? `Texte : ${layer.text || "Sans texte"}` : layer.type === "image" ? `Image ${index + 1}` : `Forme : ${layer.shape === "rectangle" ? "Rectangle" : layer.shape === "circle" ? "Cercle" : "Ligne"}`}</button><button type="button" onClick={() => { setCustomLayers((layers) => layers.filter((item) => item.id !== layer.id)); setLayerOrder((order) => order.filter((id) => id !== layer.id)); if (selectedLayerId === layer.id) setSelectedLayerId(null); }} className="rounded px-2 py-1 text-[10px] text-white/50 hover:bg-white/10 hover:text-white">✕</button></div>)}</div>}
-                </div>
-                {selectedLayer && (
-                  <div className="space-y-4 rounded-xl border border-[#FFFFFF]/40 bg-[#1B1B1B] p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-[#FFFFFF]">Modifier la sélection</h2>
-                      <div className="flex gap-1">
-                        <button type="button" onClick={() => moveLayerOrder(selectedLayer.id, "down")} disabled={layerOrder.indexOf(selectedLayer.id) <= 0} className="rounded-md border border-white/10 bg-[#101010] px-2 py-1.5 text-[9px] text-white/70 hover:border-[#FFFFFF] hover:text-[#FFFFFF] disabled:cursor-not-allowed disabled:opacity-30">← Derrière</button>
-                        <button type="button" onClick={() => moveLayerOrder(selectedLayer.id, "up")} disabled={layerOrder.indexOf(selectedLayer.id) === layerOrder.length - 1} className="rounded-md border border-white/10 bg-[#101010] px-2 py-1.5 text-[9px] text-white/70 hover:border-[#FFFFFF] hover:text-[#FFFFFF] disabled:cursor-not-allowed disabled:opacity-30">Devant →</button>
-                      </div>
-                    </div>
-                    {selectedLayer.type === "text" && <div><label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">Contenu du texte</label><textarea rows={2} value={selectedLayer.text ?? ""} onChange={(event) => updateCustomLayer(selectedLayer.id, { text: event.target.value })} className="w-full rounded-lg border border-white/10 bg-[#101010] px-3 py-2 text-xs text-white outline-none focus:border-[#FFFFFF]" /></div>}
-                    {selectedLayer.type === "text" && <div className="space-y-3 rounded-lg border border-white/10 bg-[#101010] p-3">
-                      <div>
-                        <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">Famille de police</label>
-                        <StudioDarkSelect
-                          value={selectedLayer.fontFamily ?? "Inter, Arial, sans-serif"}
-                          onChange={(value) => updateCustomLayer(selectedLayer.id, { fontFamily: value })}
-                          options={[
-                            { label: "Inter", value: "Inter, Arial, sans-serif" },
-                            { label: "Roboto", value: "Roboto, Arial, sans-serif" },
-                            { label: "Montserrat", value: "Montserrat, Arial, sans-serif" },
-                            { label: "Poppins", value: "Poppins, Arial, sans-serif" },
-                            { label: "Open Sans", value: "Open Sans, Arial, sans-serif" },
-                            { label: "Lato", value: "Lato, Arial, sans-serif" },
-                            { label: "Oswald", value: "Oswald, Arial, sans-serif" },
-                            { label: "Playfair Display", value: "Playfair Display, Georgia, serif" },
-                            { label: "Caveat Brush ✦", value: '"Caveat Brush", cursive' },
-                            { label: "Bebas Neue", value: "Bebas Neue, Impact, sans-serif" },
-                            { label: "Caveat Brush ✦", value: '"Caveat Brush", cursive' },
-                            { label: "Arial", value: "Arial" },
-                            { label: "Georgia", value: "Georgia" },
-                            { label: "Impact", value: "Impact" },
-                          ]}
-                        />
-                      </div>
-                      <div>
-                        <div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Taille du texte</label><span className="text-[10px] text-white/50">{selectedLayer.fontSize ?? 40} px</span></div>
-                        <input type="range" min="12" max="160" value={selectedLayer.fontSize ?? 40} onChange={(event) => updateCustomLayer(selectedLayer.id, { fontSize: Number(event.target.value) })} className="w-full accent-[#FFFFFF]" />
-                      </div>
-                      <div>
-                        <label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">Épaisseur du texte</label>
-                        <StudioDarkSelect
-                          value={String(selectedLayer.fontWeight ?? 700)}
-                          onChange={(value) => updateCustomLayer(selectedLayer.id, { fontWeight: Number(value) })}
-                          options={[
-                            { label: "Normal", value: "400" },
-                            { label: "Medium", value: "500" },
-                            { label: "Semi-bold", value: "600" },
-                            { label: "Bold", value: "700" },
-                            { label: "Extra-bold", value: "800" },
-                          ]}
-                        />
-                      </div>
-                    </div>}
-                    {selectedLayer.type !== "image" && <div><label className="mb-2 block text-[9px] uppercase tracking-[0.14em] text-white/40">Couleur</label><input type="color" value={selectedLayer.color} onChange={(event) => updateCustomLayer(selectedLayer.id, { color: event.target.value })} className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-[#101010] p-1" /></div>}
-                    <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Transparence</label><span className="text-[10px] text-white/50">{selectedLayer.opacity}%</span></div><input type="range" min="10" max="100" value={selectedLayer.opacity} onChange={(event) => updateCustomLayer(selectedLayer.id, { opacity: Number(event.target.value) })} className="w-full accent-[#FFFFFF]" /></div>
-                    <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Largeur</label><span className="text-[10px] text-white/50">{Math.round(selectedLayer.width)}%</span></div><input type="range" min="1" max="100" value={selectedLayer.width} onChange={(event) => updateCustomLayer(selectedLayer.id, { width: Number(event.target.value), x: Math.min(selectedLayer.x, 100 - Number(event.target.value)) })} className="w-full accent-[#FFFFFF]" /></div>
-                    {selectedLayer.type !== "text" && <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Hauteur</label><span className="text-[10px] text-white/50">{Math.round(selectedLayer.height)}%</span></div><input type="range" min="1" max="100" value={selectedLayer.height} onChange={(event) => updateCustomLayer(selectedLayer.id, { height: Number(event.target.value), y: Math.min(selectedLayer.y, 100 - Number(event.target.value)) })} className="w-full accent-[#FFFFFF]" /></div>}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Position X</label><span className="text-[10px] text-white/50">{Math.round(selectedLayer.x)}%</span></div><input type="range" min="0" max={Math.max(0, 100 - selectedLayer.width)} value={selectedLayer.x} onChange={(event) => updateCustomLayer(selectedLayer.id, { x: Number(event.target.value) })} className="w-full accent-[#FFFFFF]" /></div>
-                      <div><div className="mb-2 flex items-center justify-between"><label className="text-[9px] uppercase tracking-[0.14em] text-white/40">Position Y</label><span className="text-[10px] text-white/50">{Math.round(selectedLayer.y)}%</span></div><input type="range" min="0" max={Math.max(0, 100 - selectedLayer.height)} value={selectedLayer.y} onChange={(event) => updateCustomLayer(selectedLayer.id, { y: Number(event.target.value) })} className="w-full accent-[#FFFFFF]" /></div>
-                    </div>
-                    {selectedLayer.type === "shape" && selectedLayer.shape === "rectangle" && <button type="button" onClick={() => updateCustomLayer(selectedLayer.id, { x: 0, y: 0, width: 100, height: 100, opacity: selectedLayer.opacity })} className="w-full rounded-lg border border-[#FFFFFF]/40 bg-[#FFFFFF]/10 px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-[#FFFFFF] hover:bg-[#FFFFFF]/20">Étendre sur toute l’affiche</button>}
-                    <button type="button" onClick={() => { setCustomLayers((layers) => layers.filter((item) => item.id !== selectedLayer.id)); setLayerOrder((order) => order.filter((id) => id !== selectedLayer.id)); setSelectedLayerId(null); }} className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-red-300 hover:bg-red-500/20">Supprimer cet élément</button>
-                  </div>
-                )}
-              </div>
-            )}
-
           </div>
-
         </aside>
-
       </div>
-
     </div>
-
   );
-
 }

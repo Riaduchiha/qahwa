@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { addSchedule, deleteSchedule } from "../actions";
+import { useToast } from "@/components/qahwa/NotificationProvider";
 
 interface Employee {
   id: string;
@@ -31,6 +32,7 @@ const inputClass =
   "w-full min-w-0 rounded-xl border border-white/10 bg-[#161616] px-3 py-2.5 text-sm text-qahwa-text focus:border-white/20 focus:outline-none focus:ring-1 focus:ring-white/10";
 
 export default function PlanningPage() {
+    const toast = useToast();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
@@ -101,19 +103,22 @@ export default function PlanningPage() {
     );
 
     if (res && !res.success) {
-      alert("Erreur : " + res.error);
+      toast.error("Erreur : " + res.error);
+    } else {
+      toast.success("Horaire ajouté.");
     }
 
     await loadData();
     setSaving(false);
   }
 
-  async function handleDelete(id: string) {
+    async function handleDelete(id: string) {
     try {
       await deleteSchedule(id);
       await loadData();
+      toast.success("Horaire supprimé.");
     } catch (err: any) {
-      alert("Erreur : " + err.message);
+      toast.error("Erreur : " + err.message);
     }
   }
 

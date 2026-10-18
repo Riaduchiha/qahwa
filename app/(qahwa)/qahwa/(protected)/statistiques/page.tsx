@@ -79,7 +79,7 @@ function StatCard({
     <div className="rounded-2xl border border-white/[0.08] bg-[#1B1B1B] p-5 shadow-panel">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-[#9A9A9A]">{label}</p>
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#FF6B00]/10 text-lg text-[#FF6B00]">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#FFFFFF]/10 text-lg text-[#FFFFFF]">
           {icon}
         </span>
       </div>
@@ -283,23 +283,24 @@ export default function QahwaStatistiquesPage() {
   return (
     <main className="min-w-0 space-y-6 pb-10">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#FF6B00]">
-            Pilotage du café
-          </p>
-          <h1 className="mt-2 font-display text-3xl uppercase text-qahwa-text">
-            Statistiques
-          </h1>
-          <p className="mt-2 text-sm text-[#9A9A9A]">
-            Suis les ventes, les achats et les dépenses de Qahwa.
-          </p>
-        </div>
+        
+<div className="min-w-0">
+  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/45">
+    Pilotage du café
+  </p>
+  <h1 className="mt-2 text-2xl font-bold tracking-tight text-qahwa-text sm:text-3xl">
+    Statistiques
+  </h1>
+  <p className="mt-2 text-sm text-white/50">
+    Suis les ventes, les achats et les dépenses de Qahwa.
+  </p>
+</div>
 
         <button
           type="button"
           onClick={() => void loadStatistics()}
           disabled={loading}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-[#1B1B1B] px-4 py-3 text-sm text-white transition hover:border-[#FF6B00]/50 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-[#1B1B1B] px-4 py-3 text-sm text-white transition hover:border-[#FFFFFF]/50 disabled:opacity-50"
         >
           <span>{loading ? "Chargement..." : "↻ Actualiser"}</span>
         </button>
@@ -313,7 +314,7 @@ export default function QahwaStatistiquesPage() {
             onClick={() => setPeriod(item.value)}
             className={`rounded-xl px-4 py-2.5 text-sm transition ${
               period === item.value
-                ? "bg-[#FF6B00] font-semibold text-white"
+                ? "bg-[#FFFFFF] font-semibold text-white"
                 : "text-[#A0A0A0] hover:bg-white/5 hover:text-white"
             }`}
           >
@@ -372,7 +373,7 @@ export default function QahwaStatistiquesPage() {
                     Chiffre d'affaires enregistré sur la période
                   </p>
                 </div>
-                <span className="rounded-lg bg-[#FF6B00]/10 px-3 py-1.5 text-xs font-medium text-[#FF6B00]">
+                <span className="rounded-lg bg-[#FFFFFF]/10 px-3 py-1.5 text-xs font-medium text-[#FFFFFF]">
                   {money(revenue)}
                 </span>
               </div>
@@ -386,7 +387,7 @@ export default function QahwaStatistiquesPage() {
                   >
                     <div className="flex w-full flex-1 items-end">
                       <div
-                        className="w-full rounded-t-md bg-gradient-to-t from-[#FF6B00] to-[#FF9A4D] transition-all"
+                        className="w-full rounded-t-md bg-gradient-to-t from-[#FFFFFF] to-[#FF9A4D] transition-all"
                         style={{
                           height: `${Math.max(
                             day.total > 0 ? 5 : 1,
@@ -467,7 +468,7 @@ export default function QahwaStatistiquesPage() {
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
                       <div
-                        className="h-full rounded-full bg-[#FF6B00]"
+                        className="h-full rounded-full bg-[#FFFFFF]"
                         style={{
                           width: `${revenue > 0 ? Math.min(100, (type.total / revenue) * 100) : 0}%`,
                         }}
@@ -504,7 +505,7 @@ export default function QahwaStatistiquesPage() {
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
                           <div
-                            className="h-full rounded-full bg-[#FF6B00]"
+                            className="h-full rounded-full bg-[#FFFFFF]"
                             style={{
                               width: `${(total / maxCategoryExpense) * 100}%`,
                             }}

@@ -7,12 +7,12 @@ import { Chess } from "chess.js";
 type Difficulty = 1 | 2 | 3;
 
 const PIECE_SYMBOLS: Record<string, string> = {
-  p: "\u265F",
-  r: "\u265C",
-  n: "\u265E",
-  b: "\u265D",
-  q: "\u265B",
-  k: "\u265A",
+  p: "\u265F\uFE0E",
+  r: "\u265C\uFE0E",
+  n: "\u265E\uFE0E",
+  b: "\u265D\uFE0E",
+  q: "\u265B\uFE0E",
+  k: "\u265A\uFE0E",
 };
 const PIECE_VALUES: Record<string, number> = {
   p: 1,
@@ -389,24 +389,27 @@ export default function PlaySoloChessPage() {
                   key={name}
                   onClick={() => onSquareClick(name)}
                   className={`relative flex items-center justify-center text-2xl sm:text-3xl ${
-                    isLight ? "bg-[#2E2925]" : "bg-[#151210]"
+                    isLight ? "bg-[#3A1B08]" : "bg-[#171717]"
                   } ${
                     isSelected
                       ? "outline outline-[3px] outline-qahwa-orange -outline-offset-[3px]"
                       : ""
                   } ${isLast ? "bg-qahwa-orange/10" : ""}`}
                 >
-                  {sq && (
-                    <span
-                      className={
-                        sq.color === "w"
-                          ? "text-[#FDFBF8] drop-shadow"
-                          : "text-qahwa-orange drop-shadow"
-                      }
-                    >
-                      {PIECE_SYMBOLS[sq.type]}
-                    </span>
-                  )}
+                {sq && (
+  <span
+    style={{
+      fontFamily: "'Segoe UI Symbol', 'Arial Unicode MS', 'DejaVu Sans', sans-serif",
+    }}
+    className={
+      sq.color === "w"
+        ? "text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.95)]"
+        : "text-[#FF6B00] drop-shadow-[0_1px_2px_rgba(0,0,0,0.95)]"
+    }
+  >
+    {PIECE_SYMBOLS[sq.type]}
+  </span>
+)}
                   {isTarget && !sq && (
                     <span className="absolute h-2.5 w-2.5 rounded-full bg-qahwa-orange/70" />
                   )}

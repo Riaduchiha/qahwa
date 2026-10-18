@@ -8,6 +8,7 @@ import type {
   OrderStatus,
   OrderType,
 } from "@/types/database";
+import { useConfirm, useToast } from "@/components/qahwa/NotificationProvider";
 
 function formatPrice(price: number) {
   return `${price} DA`;
@@ -95,6 +96,8 @@ type OrderWithItems = Order & {
 };
 
 export default function CommandesPage() {
+    const toast = useToast();
+  const confirm = useConfirm();
   const [orders, setOrders] = useState<OrderWithItems[]>([]);
   const [filter, setFilter] =
     useState<OrderStatus | "toutes">("toutes");
@@ -196,7 +199,7 @@ export default function CommandesPage() {
 
     if (!res.ok) {
       const { error } = await res.json();
-      alert("Erreur : " + error);
+      toast.error("Erreur : " + error);
     }
   }
 
@@ -417,10 +420,7 @@ export default function CommandesPage() {
                 className="w-full text-left"
               >
                 <div className="flex items-center gap-3 p-4 sm:p-5">
-                  {/* ORDER NUMBER */}
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-qahwa-panel2 font-display text-xs text-qahwa-orange">
-                    #
-                  </div>
+                  
 
                   {/* MAIN INFO */}
                   <div className="min-w-0 flex-1">

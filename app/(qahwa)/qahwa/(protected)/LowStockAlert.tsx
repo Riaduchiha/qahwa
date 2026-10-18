@@ -14,9 +14,11 @@ type Ingredient = {
 function playAlertSound() {
   const AudioContextClass =
     window.AudioContext ||
-    (window as typeof window & {
-      webkitAudioContext?: typeof AudioContext;
-    }).webkitAudioContext;
+    (
+      window as typeof window & {
+        webkitAudioContext?: typeof AudioContext;
+      }
+    ).webkitAudioContext;
 
   if (!AudioContextClass) return;
 
@@ -51,16 +53,11 @@ export default function LowStockAlert() {
 
   const hasPlayedSound = useRef(false);
 
-  const supabase = useMemo(
-    () => createSupabaseBrowserClient(),
-    []
-  );
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   useEffect(() => {
     async function check() {
-      const { data } = await supabase
-        .from("ingredients")
-        .select("*");
+      const { data } = await supabase.from("ingredients").select("*");
 
       const low = (data ?? []).filter(
         (ingredient: Ingredient) =>
@@ -168,13 +165,9 @@ export default function LowStockAlert() {
                   : 0;
 
               return (
-                <div
-                  key={ingredient.id}
-                  className="space-y-1"
-                >
+                <div key={ingredient.id} className="space-y-1">
                   <p className="truncate text-[12px] text-red-400">
-                    {ingredient.name} ·{" "}
-                    {ingredient.quantity_in_stock}
+                    {ingredient.name} · {ingredient.quantity_in_stock}
                     {ingredient.unit}
                   </p>
 

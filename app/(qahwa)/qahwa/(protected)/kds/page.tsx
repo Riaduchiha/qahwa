@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Order, OrderItem, Station } from "@/types/database";
+import { useToast } from "@/components/qahwa/NotificationProvider";
 
 const STATIONS: { value: Station | "tous"; label: string }[] = [
   { value: "tous", label: "Tous" },
@@ -30,6 +31,7 @@ function elapsedLabel(createdAt: string) {
 }
 
 export default function KdsPage() {
+    const toast = useToast();
   const [orders, setOrders] = useState<OrderWithItems[]>([]);
   const [station, setStation] = useState<Station | "tous">("tous");
   const [tick, setTick] = useState(0);
@@ -107,7 +109,7 @@ export default function KdsPage() {
     return () => clearInterval(interval);
   }, []);
 
-  async function markReady(item: OrderItem) {
+   async function markReady(item: OrderItem) {
     try {
       const response = await fetch("/api/poste/mark-ready", {
         method: "POST",
@@ -122,14 +124,14 @@ export default function KdsPage() {
       const result = await response.json();
 
       if (!response.ok) {
-        alert(result.error ?? "Erreur.");
+        toast.error(result.error ?? "Erreur.");
         return;
       }
 
       await loadOrders();
     } catch (error) {
       console.error("Mark ready:", error);
-      alert("Erreur lors de la validation.");
+      toast.error("Erreur lors de la validation.");
     }
   }
 

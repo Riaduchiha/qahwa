@@ -79,9 +79,7 @@ function daysUntil(event: EventItem) {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
-  const date = new Date(
-    event.event_date + "T00:00:00"
-  );
+  const date = new Date(event.event_date + "T00:00:00");
 
   if (event.recurring) {
     date.setFullYear(now.getFullYear());
@@ -91,9 +89,7 @@ function daysUntil(event: EventItem) {
     }
   }
 
-  return Math.ceil(
-    (date.getTime() - now.getTime()) / 86400000
-  );
+  return Math.ceil((date.getTime() - now.getTime()) / 86400000);
 }
 
 export default function EventAlert() {
@@ -101,26 +97,19 @@ export default function EventAlert() {
   const [dismissed, setDismissed] = useState(false);
   const [visible, setVisible] = useState(false);
 
-  const supabase = useMemo(
-    () => createSupabaseBrowserClient(),
-    []
-  );
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   useEffect(() => {
     async function check() {
       const { data } = await supabase
         .from("events")
-        .select(
-          "id, title, event_date, recurring, type"
-        );
+        .select("id, title, event_date, recurring, type");
 
-      const upcoming = (data ?? []).filter(
-        (event: EventItem) => {
-          const days = daysUntil(event);
+      const upcoming = (data ?? []).filter((event: EventItem) => {
+        const days = daysUntil(event);
 
-          return days >= 0 && days <= 7;
-        }
-      );
+        return days >= 0 && days <= 7;
+      });
 
       setSoon(upcoming);
 
@@ -151,10 +140,7 @@ export default function EventAlert() {
 
   useEffect(() => {
     if (soon.length > 0 && !dismissed) {
-      const timer = setTimeout(
-        () => setVisible(true),
-        80
-      );
+      const timer = setTimeout(() => setVisible(true), 80);
 
       return () => clearTimeout(timer);
     }
@@ -167,9 +153,7 @@ export default function EventAlert() {
   }
 
   const firstEvent = soon[0];
-  const firstColors = getEventColors(
-    firstEvent?.type ?? null
-  );
+  const firstColors = getEventColors(firstEvent?.type ?? null);
 
   return (
     <div
@@ -180,9 +164,7 @@ export default function EventAlert() {
       }`}
     >
       {/* Couleur de la catégorie principale */}
-      <div
-        className={`h-[2px] ${firstColors.bar}`}
-      />
+      <div className={`h-[2px] ${firstColors.bar}`} />
 
       <div className="flex items-start gap-3 px-3.5 py-3">
         {/* Icône */}
@@ -198,13 +180,7 @@ export default function EventAlert() {
             strokeLinecap="round"
             strokeLinejoin="round"
           >
-            <rect
-              x="3"
-              y="4"
-              width="18"
-              height="17"
-              rx="3"
-            />
+            <rect x="3" y="4" width="18" height="17" rx="3" />
             <path d="M16 2v4" />
             <path d="M8 2v4" />
             <path d="M3 10h18" />
@@ -229,17 +205,11 @@ export default function EventAlert() {
 
               const percentage = Math.max(
                 0,
-                Math.min(
-                  100,
-                  ((7 - days) / 7) * 100
-                )
+                Math.min(100, ((7 - days) / 7) * 100)
               );
 
               return (
-                <div
-                  key={event.id}
-                  className="space-y-1"
-                >
+                <div key={event.id} className="space-y-1">
                   <p
                     className={`flex items-center gap-1.5 truncate text-[12px] ${colors.text}`}
                   >
@@ -247,17 +217,13 @@ export default function EventAlert() {
                       className={`h-1.5 w-1.5 shrink-0 rounded-full ${colors.dot}`}
                     />
 
-                    <span className="truncate">
-                      {event.title}
-                    </span>
+                    <span className="truncate">{event.title}</span>
 
                     <span className="shrink-0 opacity-80">
                       ·{" "}
                       {days === 0
                         ? "aujourd'hui"
-                        : `dans ${days} jour${
-                            days > 1 ? "s" : ""
-                          }`}
+                        : `dans ${days} jour${days > 1 ? "s" : ""}`}
                     </span>
                   </p>
 

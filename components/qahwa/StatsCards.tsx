@@ -78,8 +78,8 @@ export default function StatsCards() {
   return (
     <div className="grid gap-4 lg:grid-cols-[1.45fr_1fr_1fr_1fr]">
       {/* CA - BLOC PRINCIPAL */}
-      <div className="group relative overflow-hidden rounded-2xl border border-qahwa-orange/30 bg-gradient-to-br from-qahwa-orange/[0.13] via-qahwa-panel to-qahwa-panel p-5 shadow-panel transition duration-300 hover:border-qahwa-orange/60">
-        <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-qahwa-orange/10 blur-3xl transition duration-500 group-hover:bg-qahwa-orange/20" />
+      <div className="relative overflow-hidden rounded-2xl border border-qahwa-border bg-qahwa-panel p-5 shadow-panel transition duration-200 hover:border-qahwa-border/80">
+        
 
         <div className="relative">
           <div className="flex items-start justify-between">

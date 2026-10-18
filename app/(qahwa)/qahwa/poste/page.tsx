@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useToast } from "@/components/qahwa/NotificationProvider";
 
 interface Employee {
   id: string;
@@ -36,6 +37,7 @@ function roleRoute(position: string) {
 
 export default function PostePage() {
   const router = useRouter();
+  const toast = useToast();
 
   const [step, setStep] = useState<Step>("checking");
   const [code, setCode] = useState("");
@@ -255,7 +257,7 @@ export default function PostePage() {
         if (!res.ok) {
           const { error } = await res.json();
 
-          alert("Erreur enregistrement : " + error);
+          toast.error("Erreur enregistrement : " + error);
 
           setSaving(false);
           return;

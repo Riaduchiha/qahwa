@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo_Black, Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
+import UpdateToast from "@/components/UpdateToast";
 
 const archivoBlack = Archivo_Black({
   subsets: ["latin"],
@@ -41,6 +42,7 @@ export default function RootLayout({
     >
       <body className="font-body bg-qahwa-noir text-qahwa-blanc antialiased">
         {children}
+        <UpdateToast />
       </body>
     </html>
   );

@@ -1,9 +1,9 @@
-
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useConfirm, useToast } from "@/components/qahwa/NotificationProvider";
 
 type StudioCreation = {
   id: string;
@@ -65,11 +65,7 @@ function CreationThumbnail({
   return (
     <div className="relative aspect-[4/5] overflow-hidden rounded-xl border border-white/10 bg-[#111]">
       <img
-        src={
-          typeof image === "string" && image
-            ? image
-            : categoryImage
-        }
+        src={typeof image === "string" && image ? image : categoryImage}
         alt={creation.name}
         className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
         onError={(event) => {
@@ -93,6 +89,8 @@ function CreationThumbnail({
 
 export default function StudioPage() {
   const router = useRouter();
+  const toast = useToast();
+  const confirm = useConfirm();
 
   const [creations, setCreations] = useState<StudioCreation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,10 +113,7 @@ export default function StudioPage() {
 
       setCreations((data ?? []) as StudioCreation[]);
     } catch (error) {
-      console.error(
-        "Erreur de chargement des créations Studio :",
-        error
-      );
+      console.error("Erreur de chargement des créations Studio :", error);
 
       setErrorMessage(
         "Impossible de charger les créations. Vérifie que tu es connecté à Qahwa."
@@ -133,9 +128,13 @@ export default function StudioPage() {
   }, [loadCreations]);
 
   const deleteCreation = async (creation: StudioCreation) => {
-    const confirmed = window.confirm(
-      `Supprimer « ${creation.name} » ? Cette action est définitive.`
-    );
+    const confirmed = await confirm({
+      title: "Supprimer cette création ?",
+      message: `« ${creation.name} » sera supprimée définitivement.`,
+      confirmLabel: "Supprimer",
+      cancelLabel: "Annuler",
+      tone: "danger",
+    });
 
     if (!confirmed) return;
 
@@ -154,9 +153,11 @@ export default function StudioPage() {
       setCreations((current) =>
         current.filter((item) => item.id !== creation.id)
       );
+
+      toast.success("Création supprimée.");
     } catch (error) {
       console.error("Erreur de suppression Studio :", error);
-      window.alert("La création n’a pas pu être supprimée.");
+      toast.error("La création n’a pas pu être supprimée.");
     } finally {
       setDeletingId(null);
     }
@@ -165,7 +166,6 @@ export default function StudioPage() {
   return (
     <main className="w-full min-w-0 pb-12">
       <div className="space-y-5 px-4 pt-2 sm:px-6 sm:pt-3">
-
         {/* BARRE PHOTO AVEC TITRE SIMPLIFIÉ */}
 
         <header className="relative isolate flex min-h-[90px] items-center overflow-hidden rounded-xl border border-white/10 bg-[#111] sm:min-h-[100px]">
@@ -219,9 +219,7 @@ export default function StudioPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      router.push(
-                        `/qahwa/studio/${category.slug}?new=1`
-                      )
+                      router.push(`/qahwa/studio/${category.slug}?new=1`)
                     }
                     aria-label={`Créer une affiche : ${category.title}`}
                     className="relative block aspect-[4/5] w-full overflow-hidden text-left"
@@ -338,9 +336,7 @@ export default function StudioPage() {
 
                     <span className="text-[10px] text-white/40">
                       {categoryCreations.length}{" "}
-                      {categoryCreations.length > 1
-                        ? "créations"
-                        : "création"}
+                      {categoryCreations.length > 1 ? "créations" : "création"}
                     </span>
                   </div>
 
@@ -373,9 +369,9 @@ export default function StudioPage() {
 
                           <p className="mt-1 text-[9px] text-white/40">
                             Modifiée le{" "}
-                            {new Date(
-                              creation.updated_at
-                            ).toLocaleDateString("fr-FR")}
+                            {new Date(creation.updated_at).toLocaleDateString(
+                              "fr-FR"
+                            )}
                           </p>
 
                           <p className="mt-3 text-[9px] font-bold uppercase tracking-[0.08em] text-white/60 transition group-hover:text-[#FF6B00]">
@@ -387,9 +383,7 @@ export default function StudioPage() {
                           <button
                             type="button"
                             disabled={deletingId === creation.id}
-                            onClick={() =>
-                              void deleteCreation(creation)
-                            }
+                            onClick={() => void deleteCreation(creation)}
                             className="rounded-md px-2 py-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-red-300/70 transition hover:bg-red-400/10 hover:text-red-200 disabled:opacity-40"
                           >
                             {deletingId === creation.id

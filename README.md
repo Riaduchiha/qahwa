@@ -64,11 +64,11 @@ graphique ne sera inventé (brief §29).
 
 ## Démarrer en local
 
-```bash
+bash
 npm install
 cp .env.example .env.local   # renseigner les clés Supabase
 npm run dev
-```
+
 
 ## Prochaine étape
 

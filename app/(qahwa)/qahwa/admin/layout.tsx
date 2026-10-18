@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import NotificationProvider from "@/components/qahwa/NotificationProvider";
 
 export const metadata: Metadata = {
   title: "QAHWA Admin",
@@ -15,5 +16,5 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  return <NotificationProvider>{children}</NotificationProvider>;
 }
