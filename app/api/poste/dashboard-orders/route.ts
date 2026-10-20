@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { verifyPosteSession } from "@/lib/poste/session";
+
 
 async function authorize() {
   const supabaseAuth = await createSupabaseServerClient();
@@ -11,11 +13,12 @@ async function authorize() {
     data: { user },
   } = await supabaseAuth.auth.getUser();
 
-  const posteSession =
-    cookies().get("poste_session")?.value === "ok";
+  const posteToken = cookies().get("poste_session")?.value;
+  const posteSession = verifyPosteSession(posteToken);
 
   return Boolean(user || posteSession);
 }
+
 
 export async function GET() {
   try {

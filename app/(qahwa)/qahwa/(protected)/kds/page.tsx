@@ -150,7 +150,7 @@ export default function KdsPage() {
   void tick;
 
   return (
-    <div className="min-h-screen bg-qahwa-bg p-4">
+    <div className="min-h-[calc(100vh-4rem)] bg-qahwa-bg p-4">
       <audio
         ref={audioRef}
         src="/notification.mp3"

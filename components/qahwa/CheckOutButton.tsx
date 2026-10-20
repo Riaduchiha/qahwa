@@ -1,16 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useToast } from "@/components/qahwa/NotificationProvider";
 
 type OutType = "temporary" | "final";
 
 export default function CheckOutButton() {
-  const router = useRouter();
   const toast = useToast();
 
   const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [outType, setOutType] = useState<OutType>("final");
   const [saving, setSaving] = useState(false);
   const [employeeName, setEmployeeName] = useState<string | null>(null);
@@ -33,6 +32,7 @@ export default function CheckOutButton() {
   }, []);
 
   async function openCamera(type: OutType) {
+    setMenuOpen(false);
     setOutType(type);
     setOpen(true);
 
@@ -194,24 +194,62 @@ export default function CheckOutButton() {
         }
       `}</style>
 
-      {/* BOUTONS CHECKOUT */}
-      <div className="fixed bottom-4 left-4 right-4 z-40 flex flex-col gap-2 sm:left-auto sm:right-5 sm:flex-row">
-        <button
-          type="button"
-          onClick={() => openCamera("temporary")}
-          className="rounded-2xl border border-qahwa-orange/40 bg-qahwa-panel/95 px-5 py-3 font-display text-xs uppercase tracking-wide text-qahwa-orange shadow-2xl backdrop-blur-xl transition hover:border-qahwa-orange hover:bg-qahwa-orange/10 active:scale-95"
-        >
-          Sortie temporaire
-        </button>
+      {/* BOUTON DISCRET */}
+      <div className="fixed bottom-4 right-4 z-40">
+        {menuOpen && (
+          <>
+            <button
+              type="button"
+              aria-label="Fermer"
+              onClick={() => setMenuOpen(false)}
+              className="fixed inset-0 z-40 cursor-default"
+            />
+
+            <div className="qahwa-checkout-in absolute bottom-12 right-0 z-50 w-56 overflow-hidden rounded-2xl border border-white/10 bg-qahwa-panel/95 shadow-2xl backdrop-blur-xl">
+              {employeeName && (
+                <p className="truncate border-b border-white/5 px-4 py-2.5 text-[10px] uppercase tracking-wider text-qahwa-muted">
+                  {employeeName}
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => openCamera("temporary")}
+                className="block w-full px-4 py-3 text-left font-display text-[11px] uppercase tracking-wide text-qahwa-text transition hover:bg-white/5"
+              >
+                Sortie temporaire
+              </button>
+
+              <button
+                type="button"
+                onClick={() => openCamera("final")}
+                className="block w-full border-t border-white/5 px-4 py-3 text-left font-display text-[11px] uppercase tracking-wide text-qahwa-rouge transition hover:bg-qahwa-rouge/10"
+              >
+                Terminer ma journée
+              </button>
+            </div>
+          </>
+        )}
 
         <button
           type="button"
-          onClick={() => openCamera("final")}
-          className="rounded-2xl border border-qahwa-rouge/40 bg-qahwa-rouge/10 px-5 py-3 font-display text-xs uppercase tracking-wide text-qahwa-rouge shadow-2xl backdrop-blur-xl transition hover:border-qahwa-rouge hover:bg-qahwa-rouge/15 active:scale-95"
+          aria-label="Menu de sortie"
+          onClick={() => setMenuOpen((v) => !v)}
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/40 text-qahwa-muted opacity-60 backdrop-blur-md transition hover:opacity-100 active:scale-95"
         >
-          {employeeName
-            ? `${employeeName} — Terminer ma journee`
-            : "Terminer ma journee"}
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 2v10" />
+            <path d="M18.4 6.6a9 9 0 1 1-12.8 0" />
+          </svg>
         </button>
       </div>
 
@@ -319,7 +357,7 @@ export default function CheckOutButton() {
                   <span className="h-1.5 w-1.5 rounded-full bg-qahwa-green" />
 
                   <span className="text-[9px] uppercase tracking-wider text-white/70">
-                    Camera active
+                    Caméra active
                   </span>
                 </div>
               </div>
