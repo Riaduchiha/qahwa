@@ -108,19 +108,22 @@ function buildSummary(orders: ShiftOrder[], items: ShiftItem[]): Summary {
   };
 }
 
+const GLASS_INNER =
+  "rounded-2xl border border-white/10 bg-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]";
+
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-xl border border-qahwa-border bg-qahwa-panel2 p-3">
-      <p className="text-xs uppercase text-qahwa-muted">{label}</p>
-      <p className="mt-1 font-display text-xl text-qahwa-text">{value}</p>
+    <div className={`${GLASS_INNER} px-3.5 py-3`}>
+      <p className="text-xs font-medium text-white/55">{label}</p>
+      <p className="mt-1 font-display text-xl tabular-nums text-white">{value}</p>
     </div>
   );
 }
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-qahwa-border bg-qahwa-panel2 p-3">
-      <h3 className="mb-2 font-display text-xs uppercase text-qahwa-muted">{title}</h3>
+    <div className={`${GLASS_INNER} px-4 py-3.5`}>
+      <h3 className="mb-1.5 text-sm font-semibold text-white">{title}</h3>
       {children}
     </div>
   );
@@ -299,19 +302,23 @@ export function CaisseToolbar() {
         </div>
       )}
 
-      {summaryOpen && (
+            {summaryOpen && (
         <div
           role="dialog"
           aria-modal="true"
           aria-label="Résumé de la journée"
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4"
+          className="fixed inset-0 z-[90] flex items-center justify-center overflow-hidden bg-black/55 p-4 backdrop-blur-md"
         >
-          <div className="flex max-h-[90dvh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-qahwa-border bg-qahwa-panel shadow-2xl">
-            <div className="shrink-0 border-b border-qahwa-border p-4">
-              <h2 className="font-display text-xl uppercase text-qahwa-text">
-                Résumé de la journée
-              </h2>
-              <p className="text-xs text-qahwa-muted">
+          {/* lueur orange derrière le verre */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-qahwa-orange/30 blur-[110px]"
+          />
+
+          <div className="relative flex max-h-[90dvh] w-full max-w-xl flex-col overflow-hidden rounded-[28px] border border-white/15 bg-white/[0.07] shadow-[0_30px_80px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.22)] backdrop-blur-2xl backdrop-saturate-150">
+            <div className="shrink-0 px-6 pb-3 pt-6">
+              <h2 className="font-display text-2xl text-white">Résumé de la journée</h2>
+              <p className="mt-0.5 text-sm capitalize text-white/55">
                 {new Date().toLocaleDateString("fr-FR", {
                   weekday: "long",
                   day: "numeric",
@@ -320,27 +327,30 @@ export function CaisseToolbar() {
               </p>
             </div>
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-4 pb-3">
               {summaryLoading && (
-                <p className="py-10 text-center text-sm text-qahwa-muted">Chargement...</p>
+                <p className="py-10 text-center text-sm text-white/55">Chargement...</p>
               )}
 
               {summaryError && (
-                <p role="alert" className="rounded-xl border border-qahwa-rouge/60 p-3 text-sm text-qahwa-rouge">
+                <p
+                  role="alert"
+                  className="rounded-2xl border border-qahwa-rouge/50 bg-qahwa-rouge/10 p-3 text-sm text-qahwa-rouge"
+                >
                   {summaryError}
                 </p>
               )}
 
               {summary && (
                 <>
-                  <div className="rounded-xl border border-qahwa-orange/60 bg-qahwa-orange/10 p-4 text-center">
-                    <p className="text-xs uppercase text-qahwa-muted">Chiffre d'affaires encaissé</p>
-                    <p className="mt-1 font-display text-3xl text-qahwa-orange">
+                  <div className="rounded-2xl border border-qahwa-orange/40 bg-gradient-to-br from-qahwa-orange/30 to-qahwa-orange/5 p-5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
+                    <p className="text-xs font-medium text-white/65">Chiffre d'affaires encaissé</p>
+                    <p className="mt-1 font-display text-4xl tabular-nums text-qahwa-orange-vif">
                       {money(summary.revenue)}
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                     <Stat label="Commandes" value={summary.total} />
                     <Stat label="Payées" value={summary.paid} />
                     <Stat label="En cours" value={summary.pending} />
@@ -350,12 +360,12 @@ export function CaisseToolbar() {
 
                   <Block title="Par type de commande">
                     {summary.byType.length === 0 ? (
-                      <p className="text-sm text-qahwa-muted">Aucune commande.</p>
+                      <p className="text-sm text-white/55">Aucune commande.</p>
                     ) : (
                       summary.byType.map((row) => (
-                        <div key={row.label} className="flex justify-between py-1 text-sm text-qahwa-text">
+                        <div key={row.label} className="flex justify-between py-1 text-sm text-white">
                           <span>{row.label} ({row.count})</span>
-                          <span>{money(row.amount)}</span>
+                          <span className="tabular-nums">{money(row.amount)}</span>
                         </div>
                       ))
                     )}
@@ -363,7 +373,7 @@ export function CaisseToolbar() {
 
                   <Block title="Caisse par mode de paiement">
                     {summary.byPayment.length === 0 ? (
-                      <p className="text-sm text-qahwa-muted">Aucun encaissement.</p>
+                      <p className="text-sm text-white/55">Aucun encaissement.</p>
                     ) : (
                       summary.byPayment.map((row) => {
                         const cash = /esp|cash/i.test(row.label);
@@ -371,14 +381,14 @@ export function CaisseToolbar() {
                           <div
                             key={row.label}
                             className={`flex justify-between py-1 text-sm ${
-                              cash ? "font-bold text-qahwa-orange" : "text-qahwa-text"
+                              cash ? "font-bold text-qahwa-orange-vif" : "text-white"
                             }`}
                           >
                             <span>
                               {row.label} ({row.count})
                               {cash ? " · en caisse" : ""}
                             </span>
-                            <span>{money(row.amount)}</span>
+                            <span className="tabular-nums">{money(row.amount)}</span>
                           </div>
                         );
                       })
@@ -387,12 +397,12 @@ export function CaisseToolbar() {
 
                   <Block title="Top 3 produits">
                     {summary.topProducts.length === 0 ? (
-                      <p className="text-sm text-qahwa-muted">Aucune vente.</p>
+                      <p className="text-sm text-white/55">Aucune vente.</p>
                     ) : (
                       summary.topProducts.map((product, index) => (
-                        <div key={product.name} className="flex justify-between py-1 text-sm text-qahwa-text">
+                        <div key={product.name} className="flex justify-between py-1 text-sm text-white">
                           <span>{index + 1}. {product.name}</span>
-                          <span>× {product.quantity}</span>
+                          <span className="tabular-nums">× {product.quantity}</span>
                         </div>
                       ))
                     )}
@@ -401,12 +411,12 @@ export function CaisseToolbar() {
               )}
             </div>
 
-            <div className="flex shrink-0 flex-col gap-2 border-t border-qahwa-border p-4 sm:flex-row">
+            <div className="flex shrink-0 flex-col gap-2.5 border-t border-white/10 p-4 sm:flex-row">
               <button
                 type="button"
                 onClick={() => setSummaryOpen(false)}
                 disabled={loggingOut}
-                className="min-h-[44px] flex-1 rounded-xl border border-white bg-white px-4 font-display text-xs uppercase text-black transition hover:bg-white/90 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="min-h-[48px] flex-1 rounded-2xl border border-white/20 bg-white/10 px-4 font-display text-xs uppercase text-white backdrop-blur-xl transition hover:bg-white/20 active:scale-[0.98] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
                 Rester sur la caisse
               </button>
@@ -415,7 +425,7 @@ export function CaisseToolbar() {
                 type="button"
                 onClick={() => void logout()}
                 disabled={loggingOut}
-                className="min-h-[44px] flex-1 rounded-xl border border-qahwa-orange bg-qahwa-orange px-4 font-display text-xs uppercase text-black transition hover:bg-[#ff8126] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qahwa-orange"
+                className="min-h-[48px] flex-1 rounded-2xl border border-white/25 bg-gradient-to-b from-qahwa-orange-vif to-qahwa-orange px-4 font-display text-xs uppercase text-black shadow-[0_8px_24px_rgba(255,107,0,0.4),inset_0_1px_0_rgba(255,255,255,0.4)] transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qahwa-orange"
               >
                 {loggingOut ? "Déconnexion..." : "Se déconnecter"}
               </button>

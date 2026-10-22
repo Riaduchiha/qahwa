@@ -1,8 +1,18 @@
 "use client";
 
 /*
- * STUDIO QAHWA — éditeur d'affiches (v3)
+ * STUDIO QAHWA — éditeur d'affiches (v4)
  * Chemin : app/qahwa/studio/[slug]/page.tsx (remplace l'ancien fichier)
+ *
+ * NOUVEAUTÉS v4
+ * ─ Plume complète : aperçu en direct du prochain segment, Maj = angles de 45°, aimantation au centre / aux bords,
+ *   déplacement des points déjà posés, clic sur le 1er point = fermer, style (couleur, épaisseur, tirets) choisi avant de dessiner.
+ * ─ Édition des points d'un tracé (double-clic ou bouton « Points ») : déplacer un point, tirer les poignées de courbe,
+ *   ajouter un point sur le tracé, supprimer un point, point lisse / angle / poignées libres, tout lisser.
+ * ─ Style de tracé : tirets, pointillés, extrémités, angles, remplissage, fermeture.
+ * ─ Mobile : panneau en tiroir en bas (onglets toujours accessibles), barre d'outils défilante, grosses poignées tactiles,
+ *   zoom à deux doigts + déplacement du plan, boutons « Modifier le texte » / « Points », pas de zoom iOS dans les champs.
+ * ─ Correction : le bloc de sélection multiple était hors du composant (erreur de syntaxe) ; il est remis dans le panneau.
  *
  * (Optionnel mais recommandé) SQL à exécuter une fois dans Supabase pour stocker
  * les images en fichiers au lieu de base64 dans la base :
@@ -35,7 +45,13 @@ type ShapeKind = "rectangle" | "circle" | "line";
 type Variant = "classic" | "premium" | "editorial" | "bold";
 type Tab = "add" | "edit" | "background" | "layers";
 type Tool = "select" | "pen";
-type Anchor = { x: number; y: number; dx: number; dy: number }; // dx,dy = poignée de sortie (l'entrée est son opposé)
+type Dash = "solid" | "dashed" | "dotted";
+type NodeKind = "smooth" | "corner" | "free";
+/**
+ * Point d'un tracé. (dx, dy) = poignée de sortie ; la poignée d'entrée est son opposé,
+ * sauf si (ix, iy) est défini : poignée d'entrée libre (décalage depuis le point).
+ */
+type Anchor = { x: number; y: number; dx: number; dy: number; ix?: number; iy?: number };
 type TextPreset = "title" | "subtitle" | "body" | "price" | "ar-title" | "ar-body" | "ar-quran";
 type CropHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
@@ -71,12 +87,15 @@ type Layer = {
   iy?: number;
   iw?: number;
   ih?: number;
-    groupId?: string;
+  groupId?: string;
   // Tracés (plume) : points relatifs au cadre (0–100), trait et remplissage
   pts?: Anchor[];
   closed?: boolean;
   sw?: number; // épaisseur du trait en px sur 1080 px de large
   fill?: string; // "none" ou une couleur
+  dash?: Dash; // trait plein, tirets ou pointillés
+  cap?: "round" | "butt"; // extrémités du trait
+  join?: "round" | "miter"; // angles du trait
 };
 
 type CropLayer = Layer & { ix: number; iy: number; iw: number; ih: number };
@@ -104,6 +123,8 @@ type Format = {
 };
 
 type SelectOption = { label: string; value: string; font?: string; group?: string; sample?: string };
+
+type PenStyle = { color: string; sw: number; dash: Dash };
 
 /* ─────────────────────────── Constantes ─────────────────────────── */
 
@@ -293,13 +314,34 @@ function isRtlText(text: string) {
 
 const hasCrop = (l: Layer): l is CropLayer =>
   l.kind === "image" && l.ix != null && l.iy != null && l.iw != null && l.ih != null;
+
+/** Écoute le glisser (souris ou doigt) jusqu'au relâchement ou à l'annulation du geste. */
+function track(move: (ev: PointerEvent) => void, done?: () => void) {
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+    done?.();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
+}
+
+/* ─────────────────────────── Tracés (plume) ─────────────────────────── */
+
+/** Poignée d'entrée d'un point (décalage depuis le point) : opposée à la sortie, sauf poignée libre. */
+const inHandle = (p: Anchor) => ({ x: p.ix ?? -p.dx, y: p.iy ?? -p.dy });
+
 /** Chemin SVG (courbes de Bézier) à partir de points 0–100 dans un cadre de bw × bh. */
 function pathD(pts: Anchor[], closed: boolean, bw: number, bh: number) {
   if (pts.length < 2) return "";
   const X = (v: number) => ((v / 100) * bw).toFixed(2);
   const Y = (v: number) => ((v / 100) * bh).toFixed(2);
-  const seg = (a: Anchor, b: Anchor) =>
-    `C ${X(a.x + a.dx)} ${Y(a.y + a.dy)} ${X(b.x - b.dx)} ${Y(b.y - b.dy)} ${X(b.x)} ${Y(b.y)}`;
+  const seg = (a: Anchor, b: Anchor) => {
+    const ih = inHandle(b);
+    return `C ${X(a.x + a.dx)} ${Y(a.y + a.dy)} ${X(b.x + ih.x)} ${Y(b.y + ih.y)} ${X(b.x)} ${Y(b.y)}`;
+  };
   const first = pts[0]!;
   let d = `M ${X(first.x)} ${Y(first.y)}`;
   for (let i = 1; i < pts.length; i++) d += ` ${seg(pts[i - 1]!, pts[i]!)}`;
@@ -307,22 +349,138 @@ function pathD(pts: Anchor[], closed: boolean, bw: number, bh: number) {
   return d;
 }
 
-/** Crée un calque « tracé » à partir de points exprimés en % de l'affiche. */
-function pathLayer(pts: Anchor[], closed: boolean): Layer {
-  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
-  let minX = Math.min(...xs), minY = Math.min(...ys);
-  const spanX = Math.max(...xs) - minX, spanY = Math.max(...ys) - minY;
+/** Tirets du trait selon le style choisi (en px, proportionnels à l'épaisseur). */
+function dashArray(dash: Dash | undefined, sw: number): number[] {
+  if (dash === "dashed") return [sw * 2.5, sw * 1.8];
+  if (dash === "dotted") return [0.01, sw * 1.9];
+  return [];
+}
+
+/** Cadre minimal + points relatifs (0–100) à partir de points exprimés en % de l'affiche. */
+function fitPath(abs: Anchor[]): Pick<Layer, "x" | "y" | "w" | "h" | "pts"> {
+  const xs = abs.map((p) => p.x), ys = abs.map((p) => p.y);
+  const rawX = Math.min(...xs), rawY = Math.min(...ys);
+  const spanX = Math.max(...xs) - rawX, spanY = Math.max(...ys) - rawY;
   const bw = Math.max(spanX, 3), bh = Math.max(spanY, 3); // cadre minimal pour pouvoir cliquer une ligne droite
-  minX = clamp(minX - (bw - spanX) / 2, 0, 100 - bw);
-  minY = clamp(minY - (bh - spanY) / 2, 0, 100 - bh);
+  const minX = clamp(rawX - (bw - spanX) / 2, 0, 100 - bw);
+  const minY = clamp(rawY - (bh - spanY) / 2, 0, 100 - bh);
   return {
-    id: uid(), kind: "path", name: "Tracé", x: minX, y: minY, w: bw, h: bh, opacity: 100,
-    color: "#FF6B00", visible: true, locked: false, closed, sw: 8, fill: "none",
-    pts: pts.map((p) => ({
+    x: minX, y: minY, w: bw, h: bh,
+    pts: abs.map((p) => ({
       x: ((p.x - minX) / bw) * 100, y: ((p.y - minY) / bh) * 100,
       dx: (p.dx / bw) * 100, dy: (p.dy / bh) * 100,
+      ...(p.ix != null && p.iy != null ? { ix: (p.ix / bw) * 100, iy: (p.iy / bh) * 100 } : {}),
     })),
   };
+}
+
+/** Points d'un calque tracé exprimés en % de l'affiche (le contraire de fitPath). */
+function absPts(l: Layer): Anchor[] {
+  return (l.pts ?? []).map((p) => ({
+    x: l.x + (p.x * l.w) / 100, y: l.y + (p.y * l.h) / 100,
+    dx: (p.dx * l.w) / 100, dy: (p.dy * l.h) / 100,
+    ...(p.ix != null && p.iy != null ? { ix: (p.ix * l.w) / 100, iy: (p.iy * l.h) / 100 } : {}),
+  }));
+}
+
+/** Crée un calque « tracé » à partir de points exprimés en % de l'affiche. */
+function pathLayer(pts: Anchor[], closed: boolean, style?: Partial<PenStyle>): Layer {
+  return {
+    id: uid(), kind: "path", name: "Tracé", ...fitPath(pts), opacity: 100,
+    color: style?.color ?? "#FF6B00", visible: true, locked: false, closed,
+    sw: style?.sw ?? 8, dash: style?.dash ?? "solid", cap: "round", join: "round", fill: "none",
+  };
+}
+
+/** Applique la rotation du calque directement aux points (pour pouvoir les éditer sans décalage). */
+function bakeRotation(l: Layer, W: number, H: number): Partial<Layer> {
+  if (!l.rotation) return {};
+  const th = (l.rotation * Math.PI) / 180, cos = Math.cos(th), sin = Math.sin(th);
+  const cx = ((l.x + l.w / 2) / 100) * W, cy = ((l.y + l.h / 2) / 100) * H;
+  const vec = (vx: number, vy: number) => {
+    const px = (vx / 100) * W, py = (vy / 100) * H;
+    return { x: ((px * cos - py * sin) / W) * 100, y: ((px * sin + py * cos) / H) * 100 };
+  };
+  const abs = absPts(l).map((p): Anchor => {
+    const X = (p.x / 100) * W - cx, Y = (p.y / 100) * H - cy;
+    const o = vec(p.dx, p.dy);
+    const a: Anchor = { x: ((cx + X * cos - Y * sin) / W) * 100, y: ((cy + X * sin + Y * cos) / H) * 100, dx: o.x, dy: o.y };
+    if (p.ix != null && p.iy != null) { const i = vec(p.ix, p.iy); a.ix = i.x; a.iy = i.y; }
+    return a;
+  });
+  return { ...fitPath(abs), rotation: 0 };
+}
+
+/** Point lisse : poignées calculées à partir des voisins (courbe naturelle). */
+function smoothAt(pts: Anchor[], i: number, closed: boolean): Anchor {
+  const n = pts.length, a = pts[i]!;
+  const prev = pts[i - 1] ?? (closed ? pts[n - 1] : undefined) ?? a;
+  const next = pts[i + 1] ?? (closed ? pts[0] : undefined) ?? a;
+  return { x: a.x, y: a.y, dx: (next.x - prev.x) / 6, dy: (next.y - prev.y) / 6 };
+}
+
+const nodeKind = (p: Anchor): NodeKind => {
+  if (p.dx === 0 && p.dy === 0 && (p.ix == null || (p.ix === 0 && p.iy === 0))) return "corner";
+  if (p.ix != null && (p.ix !== -p.dx || p.iy !== -p.dy)) return "free";
+  return "smooth";
+};
+
+/** Point de la courbe de Bézier entre a et b. */
+function bezAt(a: Anchor, b: Anchor, t: number) {
+  const ih = inHandle(b);
+  const c1x = a.x + a.dx, c1y = a.y + a.dy, c2x = b.x + ih.x, c2y = b.y + ih.y;
+  const u = 1 - t;
+  return {
+    x: u * u * u * a.x + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * b.x,
+    y: u * u * u * a.y + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * b.y,
+  };
+}
+
+/** Point du tracé le plus proche d'une position (en % de l'affiche). Distance en px de l'affiche. */
+function nearestOnPath(abs: Anchor[], closed: boolean, p: { x: number; y: number }, W: number, H: number) {
+  const n = abs.length;
+  const count = closed ? n : n - 1;
+  const dist = (q: { x: number; y: number }) => Math.hypot(((q.x - p.x) / 100) * W, ((q.y - p.y) / 100) * H);
+  let best: { seg: number; t: number; dist: number } | null = null;
+  for (let s = 0; s < count; s++) {
+    const a = abs[s]!, b = abs[(s + 1) % n]!;
+    const scan = (t0: number, t1: number, steps: number) => {
+      for (let k = 0; k <= steps; k++) {
+        const t = t0 + ((t1 - t0) * k) / steps;
+        const d = dist(bezAt(a, b, t));
+        if (!best || d < best.dist) best = { seg: s, t, dist: d };
+      }
+    };
+    scan(0, 1, 40);
+  }
+  if (!best) return null;
+  const b0: { seg: number; t: number; dist: number } = best;
+  const a = abs[b0.seg]!, b = abs[(b0.seg + 1) % n]!;
+  for (let k = 0; k <= 20; k++) {
+    const t = clamp(b0.t - 0.025 + (0.05 * k) / 20, 0, 1);
+    const d = dist(bezAt(a, b, t));
+    if (d < b0.dist) { b0.t = t; b0.dist = d; }
+  }
+  return b0;
+}
+
+/** Coupe un segment en deux à la position t (de Casteljau) : la forme du tracé ne change pas. */
+function splitPath(abs: Anchor[], seg: number, t: number) {
+  const n = abs.length;
+  const a = abs[seg]!, bi = (seg + 1) % n, b = abs[bi]!;
+  const ih = inHandle(b);
+  const c1 = { x: a.x + a.dx, y: a.y + a.dy }, c2 = { x: b.x + ih.x, y: b.y + ih.y };
+  const L = (p: { x: number; y: number }, q: { x: number; y: number }) => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+  const q0 = L(a, c1), q1 = L(c1, c2), q2 = L(c2, b), r0 = L(q0, q1), r1 = L(q1, q2), s = L(r0, r1);
+  const ain = inHandle(a);
+  const na: Anchor = { ...a, ix: ain.x, iy: ain.y, dx: q0.x - a.x, dy: q0.y - a.y };
+  const nb: Anchor = { ...b, ix: q2.x - b.x, iy: q2.y - b.y };
+  const mid: Anchor = { x: s.x, y: s.y, dx: r1.x - s.x, dy: r1.y - s.y, ix: r0.x - s.x, iy: r0.y - s.y };
+  const out = abs.slice();
+  out[seg] = na;
+  out[bi] = nb;
+  out.splice(seg + 1, 0, mid);
+  return { pts: out, index: seg + 1 };
 }
 
 /** Position de l'image dans son cadre pour « remplir » (cover) ou « image entière » (contain). */
@@ -616,14 +774,16 @@ async function renderDoc(doc: Doc, W: number, H: number): Promise<HTMLCanvasElem
           drawCover(ctx, img, bx, by, bw, bh, l.fit ?? "contain");
         }
       } catch { /* ignoré */ }
-          } else if (l.kind === "path" && l.pts) {
+    } else if (l.kind === "path" && l.pts) {
       ctx.translate(bx, by);
       const p2 = new Path2D(pathD(l.pts, !!l.closed, bw, bh));
       if (l.fill && l.fill !== "none") { ctx.fillStyle = l.fill; ctx.fill(p2); }
+      const sw = (l.sw ?? 8) * s;
       ctx.strokeStyle = l.color;
-      ctx.lineWidth = (l.sw ?? 8) * s;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
+      ctx.lineWidth = sw;
+      ctx.lineCap = l.dash === "dotted" ? "round" : l.cap ?? "round";
+      ctx.lineJoin = l.join ?? "round";
+      ctx.setLineDash(dashArray(l.dash, sw));
       ctx.stroke(p2);
     } else if (l.kind === "shape") {
       ctx.fillStyle = l.color;
@@ -655,7 +815,7 @@ function Range({ label, value, min, max, step = 1, unit = "", onChange }: {
         <span>{label}</span>
         <span className="tabular-nums text-white/85">{Math.round(value * 100) / 100}{unit}</span>
       </div>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-[#FF6B00]" />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="h-6 w-full cursor-pointer accent-[#FF6B00]" />
     </label>
   );
 }
@@ -665,7 +825,7 @@ function Seg<T extends string>({ value, options, onChange }: { value: T; options
     <div className="grid gap-1 rounded-lg bg-white/5 p-1" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
       {options.map((o) => (
         <button key={o.value} type="button" onClick={() => onChange(o.value)}
-          className={`rounded-md px-2 py-2 text-[11px] font-medium transition ${o.value === value ? "bg-[#FF6B00] text-white" : "text-white/65 hover:bg-white/10 hover:text-white"}`}>
+          className={`rounded-md px-2 py-2 text-[11px] font-medium transition max-lg:py-2.5 ${o.value === value ? "bg-[#FF6B00] text-white" : "text-white/65 hover:bg-white/10 hover:text-white"}`}>
           {o.label}
         </button>
       ))}
@@ -676,9 +836,9 @@ function Seg<T extends string>({ value, options, onChange }: { value: T; options
 function Toggle({ label, on, onChange }: { label: string; on: boolean; onChange: (v: boolean) => void }) {
   return (
     <button type="button" role="switch" aria-checked={on} onClick={() => onChange(!on)}
-      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-[11px] font-medium transition ${on ? "border-[#FF6B00] bg-[#FF6B00]/10 text-white" : "border-white/10 text-white/65 hover:bg-white/5"}`}>
+      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-[11px] font-medium transition max-lg:py-3 ${on ? "border-[#FF6B00] bg-[#FF6B00]/10 text-white" : "border-white/10 text-white/65 hover:bg-white/5"}`}>
       {label}
-      <span className={`h-4 w-7 rounded-full p-0.5 transition ${on ? "bg-[#FF6B00]" : "bg-white/20"}`}>
+      <span className={`h-4 w-7 shrink-0 rounded-full p-0.5 transition ${on ? "bg-[#FF6B00]" : "bg-white/20"}`}>
         <span className={`block h-3 w-3 rounded-full bg-white transition ${on ? "translate-x-3" : ""}`} />
       </span>
     </button>
@@ -695,7 +855,7 @@ function ColorField({ value, onChange }: { value: string; onChange: (v: string) 
       <div className="mt-2 flex gap-2">
         {PALETTE.map((c) => (
           <button key={c} type="button" aria-label={c} onClick={() => onChange(c)}
-            className={`h-7 flex-1 rounded-md border ${value.toLowerCase() === c.toLowerCase() ? "border-[#FF6B00] ring-1 ring-[#FF6B00]" : "border-white/15"}`} style={{ backgroundColor: c }} />
+            className={`h-7 flex-1 rounded-md border max-lg:h-9 ${value.toLowerCase() === c.toLowerCase() ? "border-[#FF6B00] ring-1 ring-[#FF6B00]" : "border-white/15"}`} style={{ backgroundColor: c }} />
         ))}
       </div>
     </div>
@@ -710,7 +870,7 @@ function StudioSelect({ value, options, onChange }: {
   return (
     <div className="relative">
       <button type="button" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-[#121212] px-3 py-2.5 text-left text-sm text-white outline-none transition hover:border-white/30 focus:border-[#FF6B00]">
+        className="flex w-full items-center justify-between rounded-lg border border-white/10 bg-[#121212] px-3 py-2.5 text-left text-sm text-white outline-none transition hover:border-white/30 focus:border-[#FF6B00] max-lg:py-3">
         <span className="truncate" style={{ fontFamily: selected?.font }}>{selected?.label ?? value}</span>
         <span className={`ml-3 text-white/50 transition-transform ${open ? "rotate-180" : ""}`}>▾</span>
       </button>
@@ -725,7 +885,7 @@ function StudioSelect({ value, options, onChange }: {
                 )}
                 <button type="button" role="option" aria-selected={o.value === value} onClick={() => { onChange(o.value); setOpen(false); }}
                   style={{ fontFamily: o.font }}
-                  className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm transition ${o.value === value ? "bg-[#FF6B00] font-semibold text-white" : "text-white/80 hover:bg-white/10 hover:text-white"}`}>
+                  className={`flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm transition max-lg:py-3 ${o.value === value ? "bg-[#FF6B00] font-semibold text-white" : "text-white/80 hover:bg-white/10 hover:text-white"}`}>
                   <span className="truncate">{o.label}</span>
                   {o.sample && <span className="shrink-0 text-base" dir="rtl">{o.sample}</span>}
                 </button>
@@ -738,7 +898,7 @@ function StudioSelect({ value, options, onChange }: {
   );
 }
 
-const btn = "rounded-lg border border-white/10 bg-[#121212] px-3 py-2.5 text-xs font-medium text-white/80 transition hover:border-white/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-30";
+const btn = "rounded-lg border border-white/10 bg-[#121212] px-3 py-2.5 text-xs font-medium text-white/80 transition hover:border-white/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 max-lg:py-3";
 
 /* Barres de défilement fines, arrondies, orange au survol */
 const SCROLLBAR_CSS = `
@@ -791,6 +951,17 @@ const SCROLLBAR_CSS = `
   .studio-root [role="listbox"] {
     overscroll-behavior: contain;
   }
+
+  /* Pas de zoom automatique d'iOS dans les champs, pas de surbrillance au toucher */
+  @media (max-width: 1023px) {
+    .studio-root input[type="text"],
+    .studio-root textarea {
+      font-size: 16px;
+    }
+  }
+  .studio-root button {
+    -webkit-tap-highlight-color: transparent;
+  }
 `;
 
 /* ───────────────────────────────── Page ───────────────────────────────── */
@@ -817,15 +988,20 @@ export default function StudioEditorPage() {
   const lastEdit = useRef<{ key: string; t: number } | null>(null);
 
   const [selIds, setSelIds] = useState<string[]>([]);
-const selIdsRef = useRef<string[]>([]);
-selIdsRef.current = selIds;
-const selectedId = selIds.length ? selIds[selIds.length - 1]! : null;
-const setSelectedId = (id: string | null) => setSelIds(id ? [id] : []);
-const [tool, setTool] = useState<Tool>("select");
-const [penPts, setPenPts] = useState<Anchor[]>([]);
-const penRef = useRef<Anchor[]>([]);
-penRef.current = penPts;
-const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const selIdsRef = useRef<string[]>([]);
+  selIdsRef.current = selIds;
+  const selectedId = selIds.length ? selIds[selIds.length - 1]! : null;
+  const setSelectedId = (id: string | null) => setSelIds(id ? [id] : []);
+  const [tool, setTool] = useState<Tool>("select");
+  const [penPts, setPenPts] = useState<Anchor[]>([]);
+  const penRef = useRef<Anchor[]>([]);
+  penRef.current = penPts;
+  const [penHover, setPenHover] = useState<{ x: number; y: number } | null>(null);
+  const [penStyle, setPenStyle] = useState<PenStyle>({ color: "#FF6B00", sw: 8, dash: "solid" });
+  const [editPathId, setEditPathId] = useState<string | null>(null); // tracé dont on modifie les points
+  const [selPt, setSelPt] = useState<number | null>(null); // point sélectionné dans ce tracé
+  const [addMode, setAddMode] = useState(false); // toucher le tracé = ajouter un point
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [cropId, setCropId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("add");
   const [name, setName] = useState("Ma création");
@@ -840,12 +1016,19 @@ const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1:
   const [showSafe, setShowSafe] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
 
+  /* — Écran : mobile / tactile, largeur affichée de l'affiche — */
+  const [isMobile, setIsMobile] = useState(false);
+  const [isTouch, setIsTouch] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [cw, setCw] = useState(0);
+
   const mainRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const bgInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const pinchRef = useRef<{ d: number; v: number; cx: number; cy: number } | null>(null);
   const act = useRef<any>({});
 
   // Prévient (avec la fenêtre QAHWA) quand on quitte la page avec des modifications non enregistrées.
@@ -856,10 +1039,16 @@ const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1:
     cancelLabel: "Rester dans l'éditeur",
   });
 
- const multi = selIds.length > 1;
-const sel = selIds.length === 1 ? doc.layers.find((l) => l.id === selIds[0]) ?? null : null;
-const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
+  const multi = selIds.length > 1;
+  const sel = selIds.length === 1 ? doc.layers.find((l) => l.id === selIds[0]) ?? null : null;
+  const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
   const cropLayer = sel && sel.id === cropId && hasCrop(sel) ? sel : null;
+  const editLayer = sel && sel.kind === "path" && sel.id === editPathId && !sel.rotation && !sel.locked ? sel : null;
+  const editAbs = editLayer ? absPts(editLayer) : null;
+  const validSel = editAbs && selPt != null && selPt < editAbs.length ? selPt : null;
+
+  /** Convertit une taille d'écran (px) en unités de l'affiche (1080 px de large). */
+  const unit = (screenPx: number) => screenPx / Math.max(0.05, (cw || 360) / W);
 
   const notify = (text: string, tone: "ok" | "error" = "ok") => {
     if (tone === "error") toast.error(text);
@@ -895,6 +1084,8 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
     setDocState(d);
     setSelectedId(null);
     setCropId(null);
+    setEditPathId(null);
+    setSelPt(null);
     setDirty(false);
   };
 
@@ -913,7 +1104,7 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
     commit(next);
   };
 
-    const groupIds = (id: string): string[] => {
+  const groupIds = (id: string): string[] => {
     const layers = docRef.current.layers;
     const l = layers.find((x) => x.id === id);
     return l?.groupId ? layers.filter((x) => x.groupId === l.groupId).map((x) => x.id) : [id];
@@ -922,6 +1113,8 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
   const selectIds = (ids: string[], switchTab = true) => {
     setSelIds(ids);
     setCropId(null);
+    setEditPathId(null);
+    setSelPt(null);
     if (switchTab && ids.length) setTab("edit");
   };
 
@@ -929,6 +1122,8 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
     const ids = id ? groupIds(id) : [];
     setSelIds(id ? [...ids.filter((x) => x !== id), id] : []);
     setCropId((c) => (c && c === id ? c : null));
+    setEditPathId((c) => (c && c === id ? c : null));
+    if (!id || id !== editPathId) setSelPt(null);
     if (!switchTab) return;
     if (id) setTab("edit");
     else setTab((t) => (t === "edit" ? "add" : t));
@@ -1162,6 +1357,13 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
 
   const zoomView = (factor: number) => setView((v) => clamp(Math.round(v * factor * 100) / 100, 0.5, 3));
 
+  /** Position d'un pointeur en % de l'affiche. */
+  const canvasPct = (ev: { clientX: number; clientY: number }) => {
+    const r = canvasRef.current?.getBoundingClientRect();
+    if (!r || !r.width) return null;
+    return { x: ((ev.clientX - r.left) / r.width) * 100, y: ((ev.clientY - r.top) / r.height) * 100 };
+  };
+
   /* — Déplacement et redimensionnement à la souris / au doigt — */
   const startDrag = (e: ReactPointerEvent, layer: Layer, mode: "move" | "resize" | "text-e" | "text-w") => {
     e.preventDefault();
@@ -1217,13 +1419,7 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
         updateLayer(layer.id, patch, `resize:${layer.id}`);
       }
     };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      setGuides({ x: null, y: null });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    track(move, () => setGuides({ x: null, y: null }));
   };
 
   /** Mode recadrage : déplacer la photo dans son cadre, ou rogner le cadre avec les poignées. */
@@ -1258,13 +1454,9 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
       if (handle.includes("n")) { const ny = clamp(start.y + dy, minY, start.y + start.h - 1); h = start.h - (ny - start.y); y = ny; }
       updateLayer(layer.id, reframe(start, { x, y, w, h }), `cframe:${layer.id}`);
     };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    track(move);
   };
+
   /** Rotation à la souris : la poignée ronde au-dessus de l'élément. Maj = pas de 15°. */
   const startRotate = (e: ReactPointerEvent, layer: Layer) => {
     e.preventDefault();
@@ -1289,22 +1481,23 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
       }
       updateLayer(layer.id, { rotation: Math.round(normAngle(deg)) }, `rotate:${layer.id}`);
     };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    track(move);
   };
-    /* — Outil Plume — */
-  const cancelPen = () => { setPenPts([]); setTool("select"); };
+
+  /* ───────────── Outil Plume : dessiner ───────────── */
+
+  const cancelPen = () => { setPenPts([]); setPenHover(null); setGuides({ x: null, y: null }); setTool("select"); };
 
   const togglePen = () => {
     if (tool === "pen") return cancelPen();
     setTool("pen");
     setPenPts([]);
+    setPenHover(null);
     setSelIds([]);
     setCropId(null);
+    setEditPathId(null);
+    setSelPt(null);
+    setSheetOpen(false);
   };
 
   const undoPenPoint = () => setPenPts((pts) => pts.slice(0, -1));
@@ -1312,9 +1505,40 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
   const finishPen = (closed = false) => {
     const pts = penRef.current.filter((p, i, arr) => i === 0 || Math.hypot(p.x - arr[i - 1]!.x, p.y - arr[i - 1]!.y) > 0.3);
     setPenPts([]);
+    setPenHover(null);
+    setGuides({ x: null, y: null });
     setTool("select");
     if (pts.length < 2) return;
-    addLayer(pathLayer(pts, closed && pts.length >= 3));
+    const layer = pathLayer(pts, closed && pts.length >= 3, penStyle);
+    addLayer(layer);
+    // On reste en édition : les points sont directement ajustables.
+    setEditPathId(layer.id);
+    setSelPt(null);
+    setAddMode(false);
+  };
+
+  /** Position d'un point en cours de dessin : Maj = angles de 45°, aimantation au centre et aux bords (Alt = sans). */
+  const penPoint = (
+    ev: { clientX: number; clientY: number; shiftKey: boolean; altKey: boolean },
+    rect: DOMRect, last?: Anchor
+  ) => {
+    let x = clamp(((ev.clientX - rect.left) / rect.width) * 100, 0, 100);
+    let y = clamp(((ev.clientY - rect.top) / rect.height) * 100, 0, 100);
+    if (ev.shiftKey && last) {
+      const vx = ((x - last.x) / 100) * W, vy = ((y - last.y) / 100) * H;
+      const ang = Math.round(Math.atan2(vy, vx) / (Math.PI / 4)) * (Math.PI / 4);
+      const len = Math.hypot(vx, vy);
+      x = clamp(last.x + ((Math.cos(ang) * len) / W) * 100, 0, 100);
+      y = clamp(last.y + ((Math.sin(ang) * len) / H) * 100, 0, 100);
+    }
+    let gx: number | null = null, gy: number | null = null;
+    if (!ev.altKey) {
+      for (const t of [0, 50, 100]) {
+        if (Math.abs(x - t) <= 1.2) { x = t; gx = t; }
+        if (Math.abs(y - t) <= 1.2) { y = t; gy = t; }
+      }
+    }
+    return { x, y, gx, gy };
   };
 
   const penDown = (e: ReactPointerEvent) => {
@@ -1323,38 +1547,186 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const toPt = (ev: { clientX: number; clientY: number }) => ({
-      x: clamp(((ev.clientX - rect.left) / rect.width) * 100, 0, 100),
-      y: clamp(((ev.clientY - rect.top) / rect.height) * 100, 0, 100),
-    });
-    const p = toPt(e);
     const cur = penRef.current;
-    const first = cur[0];
+    const last = cur[cur.length - 1];
+    const touch = isTouch || e.pointerType === "touch";
+    const hitR = touch ? 24 : 12;
+    const raw = { x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 };
+    const hitIdx = cur.findIndex((a) => Math.hypot(((a.x - raw.x) / 100) * rect.width, ((a.y - raw.y) / 100) * rect.height) < hitR);
+
     // Clic sur le premier point : on ferme le tracé.
-    if (first && cur.length >= 3 && Math.hypot(((p.x - first.x) / 100) * rect.width, ((p.y - first.y) / 100) * rect.height) < 14) {
-      finishPen(true);
+    if (hitIdx === 0 && cur.length >= 3) { finishPen(true); return; }
+
+    // Clic sur un point déjà posé : on le déplace.
+    if (hitIdx >= 0) {
+      const a0 = cur[hitIdx]!;
+      const ox = a0.x - raw.x, oy = a0.y - raw.y;
+      track((ev) => {
+        const qx = clamp(((ev.clientX - rect.left) / rect.width) * 100 + ox, 0, 100);
+        const qy = clamp(((ev.clientY - rect.top) / rect.height) * 100 + oy, 0, 100);
+        setPenPts((pts) => pts.map((a, i) => (i === hitIdx ? { ...a, x: qx, y: qy } : a)));
+      });
       return;
     }
+
+    const p = penPoint(e, rect, last);
+    setGuides({ x: p.gx, y: p.gy });
     const idx = cur.length;
     setPenPts([...cur, { x: p.x, y: p.y, dx: 0, dy: 0 }]);
     // Glisser après le clic : tire une poignée de Bézier (courbe).
-    const move = (ev: PointerEvent) => {
-      const q = toPt(ev);
+    track((ev) => {
+      const q = penPoint(ev, rect);
       if (Math.hypot(((q.x - p.x) / 100) * rect.width, ((q.y - p.y) / 100) * rect.height) < 4) return;
       setPenPts((pts) => pts.map((a, i) => (i === idx ? { ...a, dx: q.x - p.x, dy: q.y - p.y } : a)));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    }, () => setGuides({ x: null, y: null }));
   };
-    /** Glisser sur le fond de l'affiche : rectangle de sélection. Maj/Ctrl = ajouter à la sélection. */
+
+  /** Aperçu du prochain segment qui suit la souris. */
+  const penMove = (e: ReactPointerEvent) => {
+    if (tool !== "pen" || e.pointerType === "touch") return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cur = penRef.current;
+    const p = penPoint(e, rect, cur[cur.length - 1]);
+    setPenHover({ x: p.x, y: p.y });
+    setGuides({ x: p.gx, y: p.gy });
+  };
+
+  /* ───────────── Outil Plume : modifier les points d'un tracé ───────────── */
+
+  /** Applique une modification aux points d'un tracé (en % de l'affiche) et recalcule son cadre. */
+  const editPath = (
+    id: string, fn: (abs: Anchor[], l: Layer) => Anchor[] | null, key?: string, extra?: Partial<Layer>
+  ) => {
+    let l = docRef.current.layers.find((x) => x.id === id);
+    if (!l || l.kind !== "path" || !l.pts) return;
+    if (l.rotation) l = { ...l, ...bakeRotation(l, W, H) };
+    const next = fn(absPts(l), l);
+    if (!next || next.length < 2) return;
+    const patch: Partial<Layer> = { ...fitPath(next), rotation: 0, ...extra };
+    apply((d) => ({ ...d, layers: d.layers.map((x) => (x.id === id ? { ...x, ...patch } : x)) }), key);
+  };
+
+  const enterEditPath = (id: string) => {
+    const l = docRef.current.layers.find((x) => x.id === id);
+    if (!l || l.kind !== "path" || l.locked) return;
+    if (l.rotation) updateLayer(id, bakeRotation(l, W, H), `bake:${id}`);
+    setSelectedId(id);
+    setCropId(null);
+    setEditPathId(id);
+    setSelPt(null);
+    setAddMode(false);
+    setTab("edit");
+  };
+
+  const exitEdit = () => { setEditPathId(null); setSelPt(null); setAddMode(false); };
+
+  const deletePoint = (id: string, idx: number) => {
+    const l = docRef.current.layers.find((x) => x.id === id);
+    if (!l?.pts) return;
+    if (l.pts.length <= 2) { notify("Un tracé garde au moins 2 points.", "error"); return; }
+    editPath(id, (abs) => abs.filter((_, i) => i !== idx), undefined, { closed: !!l.closed && l.pts.length - 1 >= 3 });
+    setSelPt(Math.max(0, idx - 1));
+  };
+
+  const nudgePoint = (id: string, idx: number, mx: number, my: number) =>
+    editPath(id, (abs) => abs.map((p, i) => (i === idx ? { ...p, x: clamp(p.x + mx, 0, 100), y: clamp(p.y + my, 0, 100) } : p)), `ptnudge:${id}:${idx}`);
+
+  const setNodeKind = (id: string, idx: number, kind: NodeKind) =>
+    editPath(id, (abs, l) => abs.map((p, i) => {
+      if (i !== idx) return p;
+      if (kind === "corner") return { x: p.x, y: p.y, dx: 0, dy: 0 };
+      const s = smoothAt(abs, i, !!l.closed);
+      if (kind === "smooth") return s;
+      const base = p.dx === 0 && p.dy === 0 ? s : p;
+      const ih = inHandle(base);
+      return { ...base, ix: ih.x, iy: ih.y };
+    }));
+
+  const setAllNodes = (id: string, kind: "smooth" | "corner") =>
+    editPath(id, (abs, l) => abs.map((p, i) => (kind === "corner" ? { x: p.x, y: p.y, dx: 0, dy: 0 } : smoothAt(abs, i, !!l.closed))));
+
+  /** Ajoute un point sur le tracé, à l'endroit le plus proche de la position touchée. */
+  const addPointAt = (id: string, p: { x: number; y: number }, maxScreenDist: number) => {
+    const l = docRef.current.layers.find((x) => x.id === id);
+    if (!l?.pts || l.rotation) return false;
+    const abs = absPts(l);
+    const hit = nearestOnPath(abs, !!l.closed, p, W, H);
+    if (!hit || hit.dist > unit(maxScreenDist)) return false;
+    const res = splitPath(abs, hit.seg, hit.t);
+    editPath(id, () => res.pts);
+    setSelPt(res.index);
+    return true;
+  };
+
+  /** Déplace un point (glisser). */
+  const startPtDrag = (e: ReactPointerEvent, l: Layer, idx: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelPt(idx);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const startAbs = absPts(l);
+    const sx = e.clientX, sy = e.clientY;
+    const p0 = startAbs[idx]!;
+    track((ev) => {
+      let nx = clamp(p0.x + ((ev.clientX - sx) / rect.width) * 100, 0, 100);
+      let ny = clamp(p0.y + ((ev.clientY - sy) / rect.height) * 100, 0, 100);
+      let gx: number | null = null, gy: number | null = null;
+      if (!ev.altKey) {
+        for (const t of [0, 50, 100]) {
+          if (Math.abs(nx - t) <= 1) { nx = t; gx = t; }
+          if (Math.abs(ny - t) <= 1) { ny = t; gy = t; }
+        }
+      }
+      setGuides({ x: gx, y: gy });
+      editPath(l.id, () => startAbs.map((p, i) => (i === idx ? { ...p, x: nx, y: ny } : p)), `ptdrag:${l.id}:${idx}`);
+    }, () => setGuides({ x: null, y: null }));
+  };
+
+  /** Tire une poignée de courbe. Alt = poignées indépendantes. */
+  const startHandleDrag = (e: ReactPointerEvent, l: Layer, idx: number, which: "out" | "in") => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelPt(idx);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const startAbs = absPts(l);
+    track((ev) => {
+      const qx = clamp(((ev.clientX - rect.left) / rect.width) * 100, -10, 110);
+      const qy = clamp(((ev.clientY - rect.top) / rect.height) * 100, -10, 110);
+      editPath(l.id, () => startAbs.map((p, i) => {
+        if (i !== idx) return p;
+        const ox = qx - p.x, oy = qy - p.y;
+        if (which === "out") {
+          if (ev.altKey && p.ix == null) return { ...p, ix: -p.dx, iy: -p.dy, dx: ox, dy: oy };
+          return { ...p, dx: ox, dy: oy };
+        }
+        if (p.ix != null || ev.altKey) return { ...p, ix: ox, iy: oy };
+        return { ...p, dx: -ox, dy: -oy };
+      }), `hdrag:${l.id}:${idx}`);
+    });
+  };
+
+  /** Glisser sur le fond de l'affiche : rectangle de sélection. Maj/Ctrl = ajouter à la sélection. */
   const startMarquee = (e: ReactPointerEvent) => {
     e.stopPropagation();
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Au doigt : un appui sur le fond désélectionne, un glissement fait défiler le plan (pas de rectangle).
+    if (e.pointerType === "touch") {
+      const sx0 = e.clientX, sy0 = e.clientY;
+      const up = (ev: PointerEvent) => {
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        if (ev.type === "pointerup" && Math.hypot(ev.clientX - sx0, ev.clientY - sy0) < 8) select(null);
+      };
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+      return;
+    }
     const rect = canvas.getBoundingClientRect();
     const pt = (ev: { clientX: number; clientY: number }) => ({
       x: clamp(((ev.clientX - rect.left) / rect.width) * 100, 0, 100),
@@ -1380,16 +1752,12 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
         .flatMap((l) => groupIds(l.id));
       setSelIds(Array.from(new Set([...base, ...hit])));
     };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+    track(move, () => {
       setMarquee(null);
       if (!moved) { if (!additive) select(null); return; }
       if (selIdsRef.current.length) setTab("edit");
       else select(null);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    });
   };
 
   /** Déplace plusieurs éléments (sélection multiple ou groupe) d'un seul bloc. */
@@ -1421,13 +1789,7 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
         layers: d.layers.map((l) => { const i = pos.get(l.id); return i ? { ...l, x: i.x + dx, y: i.y + dy } : l; }),
       }), `dragm:${ids.join(",")}`);
     };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      setGuides({ x: null, y: null });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    track(move, () => setGuides({ x: null, y: null }));
   };
 
   const layerDown = (e: ReactPointerEvent, l: Layer, cropping: boolean) => {
@@ -1435,6 +1797,7 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
     if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); e.stopPropagation(); toggleSelect(l.id); return; }
     startDrag(e, l, "move");
   };
+
   /* — Ajout d'éléments — */
 
   const addText = (preset: TextPreset) => {
@@ -1542,6 +1905,28 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
   };
 
   /* — Effets — */
+  // Écran tactile / petit écran.
+  useEffect(() => {
+    const touchMq = window.matchMedia("(pointer: coarse)");
+    const mobileMq = window.matchMedia("(max-width: 1023px)");
+    const sync = () => { setIsTouch(touchMq.matches); setIsMobile(mobileMq.matches); };
+    sync();
+    touchMq.addEventListener("change", sync);
+    mobileMq.addEventListener("change", sync);
+    return () => { touchMq.removeEventListener("change", sync); mobileMq.removeEventListener("change", sync); };
+  }, []);
+
+  // Largeur affichée de l'affiche (pour garder des poignées de taille confortable à l'écran).
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const measure = () => setCw(el.offsetWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Brouillon automatique : évite de perdre le travail en cas de rechargement.
   useEffect(() => {
     if (!dirty) return;
@@ -1594,10 +1979,11 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
   }, []);
 
   // Raccourcis clavier (les fonctions sont lues via act.current pour toujours être à jour).
-    act.current = {
+  act.current = {
     undo, redo, save, select, selIds, cropId, setCropId, zoomCropBy, zoomView, tool,
     finishPen, cancelPen, undoPenPoint, togglePen, selectAll, groupSelected, ungroupSelected,
     duplicateMany, removeLayers, nudgeSelection,
+    editPathId, selPt, exitEdit, deletePoint, nudgePoint,
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1616,6 +2002,15 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
         if (key === "backspace" || key === "delete") { e.preventDefault(); a.undoPenPoint(); return; }
       }
       if (a.cropId && (key === "escape" || key === "enter")) { e.preventDefault(); a.setCropId(null); return; }
+      if (a.editPathId) {
+        if (key === "escape" || key === "enter") { e.preventDefault(); a.exitEdit(); return; }
+        if (a.selPt != null) {
+          if (key === "delete" || key === "backspace") { e.preventDefault(); a.deletePoint(a.editPathId, a.selPt); return; }
+          const st = e.shiftKey ? 2 : 0.4;
+          const dp = { arrowleft: [-st, 0], arrowright: [st, 0], arrowup: [0, -st], arrowdown: [0, st] }[key];
+          if (dp) { e.preventDefault(); a.nudgePoint(a.editPathId, a.selPt, dp[0]!, dp[1]!); return; }
+        }
+      }
       if (mod && key === "z") { e.preventDefault(); if (e.shiftKey) a.redo(); else a.undo(); return; }
       if (mod && key === "y") { e.preventDefault(); a.redo(); return; }
       if (t.tagName === "INPUT") return;
@@ -1635,28 +2030,7 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);{tab === "edit" && multi && (
-  <>
-    <Section title={`${selIds.length} éléments sélectionnés`}>
-      <div className="grid grid-cols-2 gap-2">
-        <button type="button" className={btn} onClick={groupSelected}>Grouper</button>
-        <button type="button" className={btn} disabled={!selHasGroup} onClick={ungroupSelected}>Dégrouper</button>
-        <button type="button" className={btn} onClick={() => duplicateMany(selIds)}>Dupliquer</button>
-        <button type="button" className={btn} onClick={() => selIds.forEach((id) => updateLayer(id, { locked: true }))}>🔒 Verrouiller</button>
-      </div>
-      <button type="button" onClick={() => removeLayers(selIds)}
-        className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20">Supprimer la sélection</button>
-    </Section>
-    <Section title="Aligner entre eux">
-      <div className="grid grid-cols-3 gap-2">
-        {([["⇤ Gauche", "l"], ["↔ Centre", "c"], ["⇥ Droite", "r"], ["⤒ Haut", "t"], ["↕ Milieu", "m"], ["⤓ Bas", "b"]] as const).map(([label, a]) => (
-          <button key={a} type="button" className={btn + " !px-1"} onClick={() => alignSelection(a)}>{label}</button>
-        ))}
-      </div>
-      <p className="text-[11px] leading-4 text-white/45">Glisse un des éléments pour déplacer toute la sélection. Maj + clic ajoute ou retire un élément.</p>
-    </Section>
-  </>
-)}
+  }, []);
 
   // Molette : zoom de la photo en mode recadrage, zoom du plan avec Ctrl (ou Cmd).
   useEffect(() => {
@@ -1679,10 +2053,29 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
+  /* — Deux doigts : zoom du plan + déplacement — */
+  const touchDist = (t: React.TouchList) => Math.hypot(t[0]!.clientX - t[1]!.clientX, t[0]!.clientY - t[1]!.clientY);
+  const touchMid = (t: React.TouchList) => ({ cx: (t[0]!.clientX + t[1]!.clientX) / 2, cy: (t[0]!.clientY + t[1]!.clientY) / 2 });
+  const onMainTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) pinchRef.current = { d: touchDist(e.touches), v: view, ...touchMid(e.touches) };
+    else pinchRef.current = null;
+  };
+  const onMainTouchMove = (e: React.TouchEvent) => {
+    const pr = pinchRef.current;
+    if (e.touches.length !== 2 || !pr) return;
+    const next = clamp(pr.v * (touchDist(e.touches) / pr.d), 0.5, 3);
+    setView(next);
+    const m = touchMid(e.touches);
+    const el = mainRef.current;
+    if (el) { el.scrollLeft -= m.cx - pr.cx; el.scrollTop -= m.cy - pr.cy; }
+    pr.cx = m.cx; pr.cy = m.cy;
+  };
+  const onMainTouchEnd = (e: React.TouchEvent) => { if (e.touches.length < 2) pinchRef.current = null; };
+
   /* — Libellés — */
   const layerLabel = (l: Layer) =>
     l.kind === "text" ? (l.text?.split("\n")[0]?.slice(0, 28) || "Texte vide")
-       : l.kind === "image" ? l.name ?? "Image"
+    : l.kind === "image" ? l.name ?? "Image"
     : l.kind === "path" ? l.name ?? "Tracé"
     : l.name ?? (l.shape === "rectangle" ? "Rectangle" : l.shape === "circle" ? "Cercle" : "Ligne");
   const layerIcon = (l: Layer) => (l.kind === "text" ? "T" : l.kind === "image" ? "▧" : l.kind === "path" ? "✒" : l.shape === "circle" ? "●" : l.shape === "line" ? "━" : "▰");
@@ -1692,46 +2085,95 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
   const canUndo = pastRef.current.length > 0;
   const canRedo = futureRef.current.length > 0;
   const chipOn = "!border-[#FF6B00] !text-white";
+  /** Boutons des barres d'outils : défilent sur une ligne, plus grands au doigt. */
+  const tb = `${btn} shrink-0 whitespace-nowrap ${isTouch ? "!py-2.5" : "!py-1.5"}`;
+
+  // Taille tactile des poignées de sélection.
+  const hs = isTouch ? 28 : 16; // coin de redimensionnement
+  const rs = isTouch ? 32 : 20; // poignée de rotation
+  const sideW = isTouch ? 18 : 10;
+  const sideH = isTouch ? 44 : 28;
+
+  // Hauteur disponible pour l'affiche selon l'écran et l'état du tiroir.
+  const canvasOffset = isMobile ? (sheetOpen ? "100dvh - 46dvh - 14rem" : "100dvh - 14rem") : "100vh - 16rem";
+
+  // Aperçu de la plume
+  const penFirst = penPts[0];
+  const hoverNearFirst = !!(penFirst && penHover && penPts.length >= 3 &&
+    Math.hypot(((penHover.x - penFirst.x) / 100) * (cw || 360), ((penHover.y - penFirst.y) / 100) * ((cw || 360) * (H / W))) < 14);
+  const penPreview =
+    penHover && penPts.length >= 1
+      ? pathD([...penPts, { x: penHover.x, y: penHover.y, dx: 0, dy: 0 }], false, W, H)
+      : "";
+
+  /* ───────────── Onglets (en haut du panneau sur ordinateur, en bas de l'écran sur mobile) ───────────── */
+  const tabBar = (
+    <div role="tablist"
+      className={isMobile
+        ? "grid shrink-0 grid-cols-4 gap-1 border-t border-white/10 bg-[#0F0F0F] p-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]"
+        : "sticky top-0 z-30 grid grid-cols-4 gap-1 border-b border-white/10 bg-[#0F0F0F] p-2"}>
+      {([
+        ["add", "Ajouter", "＋"],
+        ["edit", "Édition", "✎"],
+        ["background", "Fond", "◐"],
+        ["layers", "Calques", "☰"],
+      ] as [Tab, string, string][]).map(([id, label, icon]) => {
+        const active = tab === id && (!isMobile || sheetOpen);
+        return (
+          <button key={id} type="button" role="tab" aria-selected={active}
+            onClick={() => {
+              if (isMobile) setSheetOpen(tab === id && sheetOpen ? false : true);
+              setTab(id);
+            }}
+            className={`flex flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-[11px] font-medium transition ${isMobile ? "py-2.5" : ""} ${active ? "bg-[#FF6B00] text-white" : "text-white/55 hover:bg-white/5 hover:text-white"}`}>
+            <span className="text-base leading-none">{icon}</span>
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   /* ───────────────────────────── Rendu ───────────────────────────── */
   return (
-    <div className="studio-root min-h-screen bg-[#0A0A0A] text-white">
+    <div className={`studio-root bg-[#0A0A0A] text-white ${isMobile ? "flex h-[100dvh] flex-col overflow-hidden" : "min-h-screen"}`}>
       <style>{SCROLLBAR_CSS}</style>
 
       {/* EN-TÊTE */}
-      <header className="flex flex-wrap items-center gap-3 border-b border-white/10 bg-[#0F0F0F] px-3 py-2.5 sm:px-5">
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 bg-[#0F0F0F] px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:gap-3 sm:px-5 sm:py-2.5">
         <button type="button" onClick={() => void goBack()}
-          className="text-sm text-white/60 transition hover:text-white">← Studio</button>
-        <div className="h-5 w-px bg-white/10" />
+          className="px-2 py-2 text-sm text-white/60 transition hover:text-white">←<span className="hidden sm:inline"> Studio</span></button>
+        <div className="hidden h-5 w-px bg-white/10 sm:block" />
         <div className="min-w-0 flex-1 sm:flex-none">
           <input value={name} onChange={(e) => { setName(e.target.value); setDirty(true); }} aria-label="Nom de la création" maxLength={60}
-            className="w-full min-w-[10rem] rounded-md border border-transparent bg-transparent px-2 py-1 text-sm font-semibold outline-none transition hover:border-white/15 focus:border-[#FF6B00] sm:w-64" />
+            className="w-full min-w-[6rem] rounded-md border border-transparent bg-transparent px-2 py-1 text-base font-semibold outline-none transition hover:border-white/15 focus:border-[#FF6B00] sm:min-w-[10rem] sm:w-64 sm:text-sm" />
           <p className="px-2 text-[10px] text-white/45">
             <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${dirty ? "bg-[#FF6B00]" : "bg-emerald-400"}`} />
-            {statusText} · {fmt.title} · {fmt.format} · {fmt.width} × {fmt.height} px
+            <span className="max-sm:hidden">{statusText} · {fmt.title} · {fmt.format} · {fmt.width} × {fmt.height} px</span>
+            <span className="sm:hidden">{dirty ? "Non enregistré" : savedId ? "Enregistré" : fmt.title}</span>
           </p>
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <button type="button" onClick={undo} disabled={!canUndo} title="Annuler (Ctrl+Z)" className={btn}>↶ Annuler</button>
-          <button type="button" onClick={redo} disabled={!canRedo} title="Rétablir (Ctrl+Maj+Z)" className={btn}>↷ Rétablir</button>
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <button type="button" onClick={undo} disabled={!canUndo} title="Annuler (Ctrl+Z)" aria-label="Annuler" className={btn}>↶<span className="hidden xl:inline"> Annuler</span></button>
+          <button type="button" onClick={redo} disabled={!canRedo} title="Rétablir (Ctrl+Maj+Z)" aria-label="Rétablir" className={btn}>↷<span className="hidden xl:inline"> Rétablir</span></button>
           <button type="button" onClick={save} disabled={saving} title="Enregistrer (Ctrl+S)"
-            className="rounded-lg bg-[#FF6B00] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#e85f00] disabled:cursor-wait disabled:opacity-60">
-            {saving ? "Enregistrement…" : "Enregistrer"}
+            className="rounded-lg bg-[#FF6B00] px-3 py-2.5 text-xs font-bold text-white transition hover:bg-[#e85f00] disabled:cursor-wait disabled:opacity-60 sm:px-4 max-lg:py-3">
+            {saving ? "…" : <><span className="sm:hidden">Sauver</span><span className="hidden sm:inline">Enregistrer</span></>}
           </button>
           <div className="relative">
-            <button type="button" onClick={() => setExportOpen((o) => !o)} disabled={busy}
-              className="rounded-lg bg-white px-4 py-2.5 text-xs font-bold text-black transition hover:bg-white/85 disabled:opacity-60">
-              {busy ? "Patiente…" : "Télécharger ▾"}
+            <button type="button" onClick={() => setExportOpen((o) => !o)} disabled={busy} aria-label="Télécharger"
+              className="rounded-lg bg-white px-3 py-2.5 text-xs font-bold text-black transition hover:bg-white/85 disabled:opacity-60 sm:px-4 max-lg:py-3">
+              {busy ? "…" : <>⬇<span className="hidden sm:inline"> Télécharger ▾</span></>}
             </button>
             {exportOpen && (
               <>
                 <button type="button" aria-label="Fermer" className="fixed inset-0 z-40 cursor-default" onClick={() => setExportOpen(false)} />
                 <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-white/15 bg-[#161616] p-1 shadow-2xl">
-                  <button type="button" onClick={() => download("png")} className="block w-full rounded-md px-3 py-2.5 text-left text-xs hover:bg-white/10">
+                  <button type="button" onClick={() => download("png")} className="block w-full rounded-md px-3 py-3 text-left text-xs hover:bg-white/10">
                     <span className="font-semibold">PNG</span> <span className="text-white/50">· qualité maximale</span>
                   </button>
-                  <button type="button" onClick={() => download("jpg")} className="block w-full rounded-md px-3 py-2.5 text-left text-xs hover:bg-white/10">
+                  <button type="button" onClick={() => download("jpg")} className="block w-full rounded-md px-3 py-3 text-left text-xs hover:bg-white/10">
                     <span className="font-semibold">JPG</span> <span className="text-white/50">· fichier plus léger</span>
                   </button>
                 </div>
@@ -1741,63 +2183,96 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
         </div>
       </header>
 
-      <div className="flex min-h-[calc(100vh-4.5rem)] flex-col lg:flex-row">
+      <div className={isMobile ? "flex min-h-0 flex-1 flex-col" : "flex min-h-[calc(100vh-4.5rem)] flex-col lg:flex-row"}>
         {/* ZONE D'AFFICHE */}
-        <main ref={mainRef} className="flex min-w-0 flex-1 flex-col items-center gap-3 overflow-auto p-3 sm:p-5"
-          style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)", backgroundSize: "22px 22px" }}
+        <main ref={mainRef}
+          className={`flex min-w-0 flex-1 flex-col items-center gap-2 overflow-auto p-2 sm:gap-3 sm:p-5 ${isMobile ? "min-h-0" : ""}`}
+          style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)", backgroundSize: "22px 22px", touchAction: "pan-x pan-y" }}
+          onTouchStart={onMainTouchStart} onTouchMove={onMainTouchMove} onTouchEnd={onMainTouchEnd} onTouchCancel={onMainTouchEnd}
           onPointerDown={() => select(null)}>
           {/* Barres d'outils : élément sélectionné + zoom du plan */}
-          <div className="flex w-full max-w-[760px] flex-wrap items-stretch gap-2" onPointerDown={(e) => e.stopPropagation()}>
-            <div className="flex min-h-[44px] min-w-0 flex-1 flex-wrap items-center justify-center gap-2 rounded-xl border border-white/10 bg-[#121212] px-3 py-1.5 text-[11px]">
+          <div className={`flex w-full max-w-[760px] items-stretch gap-2 ${isMobile ? "flex-col" : "flex-wrap"}`} onPointerDown={(e) => e.stopPropagation()}>
+            <div className={`flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-[#121212] px-3 py-1.5 text-[11px] ${isMobile ? "flex-nowrap justify-start overflow-x-auto" : "flex-wrap justify-center"}`}>
               {tool === "pen" ? (
-  <>
-    <span className="mr-auto min-w-0 text-white/75">
-      <span className="font-semibold text-[#FF6B00]">✒ Plume</span> · clic = point · glisser = courbe · clic sur le 1er point = fermer · Entrée = terminer
-    </span>
-    <button type="button" className={btn + " !py-1.5 !bg-[#FF6B00] !text-white"} disabled={penPts.length < 2} onClick={() => finishPen(false)}>Terminer</button>
-    <button type="button" className={btn + " !py-1.5"} disabled={!penPts.length} onClick={undoPenPoint}>↶ Point</button>
-    <button type="button" className={btn + " !py-1.5"} onClick={cancelPen}>Annuler</button>
-  </>
-) : multi ? (
-  <>
-    <span className="mr-auto font-semibold text-white/80">{selIds.length} éléments sélectionnés</span>
-    <button type="button" className={btn + " !py-1.5"} onClick={groupSelected} title="Grouper (Ctrl+G)">Grouper</button>
-    <button type="button" className={btn + " !py-1.5"} disabled={!selHasGroup} onClick={ungroupSelected} title="Dégrouper (Ctrl+Maj+G)">Dégrouper</button>
-    <button type="button" className={btn + " !py-1.5"} onClick={() => duplicateMany(selIds)}>Dupliquer</button>
-    <button type="button" className={btn + " !py-1.5 !text-red-300"} onClick={() => removeLayers(selIds)}>Supprimer</button>
-  </>
-) : cropLayer ? (
                 <>
-                  <span className="mr-auto min-w-0 text-white/75">
-                    <span className="font-semibold text-[#FF6B00]">✂ Recadrage</span> · glisse pour déplacer · molette pour zoomer · poignées pour rogner
+                  <span className="mr-auto min-w-0 shrink-0 whitespace-nowrap text-white/75 lg:whitespace-normal">
+                    <span className="font-semibold text-[#FF6B00]">✒ Plume</span>
+                    <span className="max-lg:hidden"> · clic = point · glisser = courbe · Maj = angle 45° · clic sur le 1er point = fermer · Entrée = terminer</span>
+                    <span className="lg:hidden"> · touche = point, glisse = courbe</span>
                   </span>
-                  <button type="button" className={btn + " !py-1.5 !bg-[#FF6B00] !text-white"} onClick={() => setCropId(null)}>Terminer</button>
+                  <button type="button" className={tb + " !bg-[#FF6B00] !text-white"} disabled={penPts.length < 2} onClick={() => finishPen(false)}>Terminer</button>
+                  <button type="button" className={tb} disabled={penPts.length < 3} onClick={() => finishPen(true)}>Fermer</button>
+                  <button type="button" className={tb} disabled={!penPts.length} onClick={undoPenPoint}>↶ Point</button>
+                  <button type="button" className={tb} onClick={cancelPen}>Annuler</button>
+                </>
+              ) : multi ? (
+                <>
+                  <span className="mr-auto shrink-0 whitespace-nowrap font-semibold text-white/80">{selIds.length} éléments</span>
+                  <button type="button" className={tb} onClick={groupSelected} title="Grouper (Ctrl+G)">Grouper</button>
+                  <button type="button" className={tb} disabled={!selHasGroup} onClick={ungroupSelected} title="Dégrouper (Ctrl+Maj+G)">Dégrouper</button>
+                  <button type="button" className={tb} onClick={() => duplicateMany(selIds)}>Dupliquer</button>
+                  <button type="button" className={tb + " !text-red-300"} onClick={() => removeLayers(selIds)}>Supprimer</button>
+                </>
+              ) : cropLayer ? (
+                <>
+                  <span className="mr-auto min-w-0 shrink-0 whitespace-nowrap text-white/75 lg:whitespace-normal">
+                    <span className="font-semibold text-[#FF6B00]">✂ Recadrage</span>
+                    <span className="max-lg:hidden"> · glisse pour déplacer · molette pour zoomer · poignées pour rogner</span>
+                  </span>
+                  <button type="button" className={tb + " !bg-[#FF6B00] !text-white"} onClick={() => setCropId(null)}>Terminer</button>
+                </>
+              ) : editLayer ? (
+                <>
+                  <span className="mr-auto min-w-0 shrink-0 whitespace-nowrap text-white/75 lg:whitespace-normal">
+                    <span className="font-semibold text-[#FF6B00]">✒ Points</span>
+                    <span className="max-lg:hidden"> · glisse un point ou une poignée · double-clic sur le tracé = ajouter un point · Suppr = effacer le point</span>
+                  </span>
+                  <button type="button" className={`${tb} ${addMode ? chipOn : ""}`} onClick={() => setAddMode((v) => !v)}>＋ Point</button>
+                  {validSel != null && editAbs && (
+                    <>
+                      <button type="button" className={tb}
+                        onClick={() => setNodeKind(editLayer.id, validSel, nodeKind(editAbs[validSel]!) === "corner" ? "smooth" : "corner")}>
+                        {nodeKind(editAbs[validSel]!) === "corner" ? "Lisser" : "Angle"}
+                      </button>
+                      <button type="button" className={tb + " !text-red-300"} onClick={() => deletePoint(editLayer.id, validSel)}>Suppr. point</button>
+                    </>
+                  )}
+                  <button type="button" className={tb + " !bg-[#FF6B00] !text-white"} onClick={exitEdit}>Terminer</button>
                 </>
               ) : sel ? (
                 <>
-                  <span className="mr-auto max-w-[40%] truncate font-semibold text-white/80">{layerIcon(sel)} {layerLabel(sel)}</span>
-                  {sel.kind === "image" && !sel.locked && (
-                    <button type="button" className={btn + " !py-1.5"} onClick={() => startCropMode(sel.id)} title="Recadrer la photo">✂ Recadrer</button>
+                  <span className="mr-auto max-w-[40%] shrink-0 truncate font-semibold text-white/80">{layerIcon(sel)} {layerLabel(sel)}</span>
+                  {sel.kind === "text" && !sel.locked && (
+                    <button type="button" className={tb} onClick={() => { setTab("edit"); setSheetOpen(true); setTimeout(() => textAreaRef.current?.focus(), 150); }}>✎ Texte</button>
                   )}
-                  <button type="button" className={btn + " !py-1.5"} onClick={() => duplicateLayer(sel.id)} title="Dupliquer (Ctrl+D)">Dupliquer</button>
-                  <button type="button" className={btn + " !py-1.5"} onClick={() => moveLayer(sel.id, "down")} title="Envoyer derrière">↓ Derrière</button>
-                  <button type="button" className={btn + " !py-1.5"} onClick={() => moveLayer(sel.id, "up")} title="Mettre devant">↑ Devant</button>
-                  <button type="button" className={btn + " !py-1.5 !text-red-300"} onClick={() => removeLayer(sel.id)} title="Supprimer (Suppr)">Supprimer</button>
+                  {sel.kind === "image" && !sel.locked && (
+                    <button type="button" className={tb} onClick={() => startCropMode(sel.id)} title="Recadrer la photo">✂ Recadrer</button>
+                  )}
+                  {sel.kind === "path" && !sel.locked && (
+                    <button type="button" className={tb} onClick={() => enterEditPath(sel.id)} title="Modifier les points du tracé">✒ Points</button>
+                  )}
+                  <button type="button" className={tb} onClick={() => duplicateLayer(sel.id)} title="Dupliquer (Ctrl+D)">Dupliquer</button>
+                  <button type="button" className={tb} onClick={() => moveLayer(sel.id, "down")} title="Envoyer derrière">↓ Derrière</button>
+                  <button type="button" className={tb} onClick={() => moveLayer(sel.id, "up")} title="Mettre devant">↑ Devant</button>
+                  <button type="button" className={tb + " !text-red-300"} onClick={() => removeLayer(sel.id)} title="Supprimer (Suppr)">Supprimer</button>
                 </>
               ) : (
-                <span className="text-white/50">Clique sur un élément pour le modifier, glisse-le pour le déplacer, tire le coin orange pour l'agrandir. Double-clique une photo pour la recadrer.</span>
+                <span className="text-white/50">
+                  <span className="max-lg:hidden">Clique sur un élément pour le modifier, glisse-le pour le déplacer, tire le coin orange pour l'agrandir. Double-clique une photo pour la recadrer.</span>
+                  <span className="lg:hidden">Touche un élément pour le modifier. Pince avec deux doigts pour zoomer.</span>
+                </span>
               )}
             </div>
 
-            <div className="flex min-h-[44px] items-center gap-1.5 rounded-xl border border-white/10 bg-[#121212] px-2 text-[11px]">
-              <button type="button" className={btn + " !px-2.5 !py-1.5"} onClick={() => zoomView(1 / 1.25)} aria-label="Dézoomer" title="Dézoomer (Ctrl + molette)">−</button>
-              <button type="button" className={btn + " !px-2 !py-1.5 min-w-[3.4rem] tabular-nums"} onClick={() => setView(1)} title="Ajuster à l'écran">{Math.round(view * 100)}%</button>
-              <button type="button" className={btn + " !px-2.5 !py-1.5"} onClick={() => zoomView(1.25)} aria-label="Zoomer" title="Zoomer (Ctrl + molette)">+</button>
-              <span className="mx-0.5 h-5 w-px bg-white/10" />
-              <button type="button" aria-pressed={showSafe} className={`${btn} !px-2.5 !py-1.5 ${showSafe ? chipOn : ""}`} onClick={() => setShowSafe((v) => !v)} title="Marges de sécurité">Marges</button>
-              <button type="button" aria-pressed={showGrid} className={`${btn} !px-2.5 !py-1.5 ${showGrid ? chipOn : ""}`} onClick={() => setShowGrid((v) => !v)} title="Grille des tiers">Grille</button>
-              <span className="mx-0.5 h-5 w-px bg-white/10" />
-<button type="button" aria-pressed={tool === "pen"} className={`${btn} !px-2.5 !py-1.5 ${tool === "pen" ? chipOn : ""}`} onClick={togglePen} title="Outil Plume (P)">✒ Plume</button>
+            <div className={`flex min-h-[44px] items-center gap-1.5 rounded-xl border border-white/10 bg-[#121212] px-2 text-[11px] ${isMobile ? "overflow-x-auto" : ""}`}>
+              <button type="button" className={btn + " shrink-0 !px-2.5 !py-1.5"} onClick={() => zoomView(1 / 1.25)} aria-label="Dézoomer" title="Dézoomer (Ctrl + molette)">−</button>
+              <button type="button" className={btn + " shrink-0 !px-2 !py-1.5 min-w-[3.4rem] tabular-nums"} onClick={() => setView(1)} title="Ajuster à l'écran">{Math.round(view * 100)}%</button>
+              <button type="button" className={btn + " shrink-0 !px-2.5 !py-1.5"} onClick={() => zoomView(1.25)} aria-label="Zoomer" title="Zoomer (Ctrl + molette)">+</button>
+              <span className="mx-0.5 h-5 w-px shrink-0 bg-white/10" />
+              <button type="button" aria-pressed={showSafe} className={`${btn} shrink-0 !px-2.5 !py-1.5 ${showSafe ? chipOn : ""}`} onClick={() => setShowSafe((v) => !v)} title="Marges de sécurité">Marges</button>
+              <button type="button" aria-pressed={showGrid} className={`${btn} shrink-0 !px-2.5 !py-1.5 ${showGrid ? chipOn : ""}`} onClick={() => setShowGrid((v) => !v)} title="Grille des tiers">Grille</button>
+              <span className="mx-0.5 h-5 w-px shrink-0 bg-white/10" />
+              <button type="button" aria-pressed={tool === "pen"} className={`${btn} shrink-0 !px-2.5 !py-1.5 ${tool === "pen" ? chipOn : ""}`} onClick={togglePen} title="Outil Plume (P)">✒ Plume</button>
             </div>
           </div>
 
@@ -1805,12 +2280,15 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
             <div
               ref={canvasRef}
               onPointerDown={(e) => (tool === "pen" ? penDown(e) : startMarquee(e))}
+              onPointerMove={penMove}
+              onPointerLeave={() => { if (tool === "pen") { setPenHover(null); setGuides({ x: null, y: null }); } }}
               className="relative m-auto shrink-0 overflow-hidden bg-[#111] shadow-[0_20px_60px_rgba(0,0,0,0.6)]"
               style={{
-                width: `calc(min(100%, calc((100vh - 16rem) * ${W / H})) * ${view})`,
+                width: `calc(min(100%, calc((${canvasOffset}) * ${W / H})) * ${view})`,
                 aspectRatio: `${W} / ${H}`,
                 containerType: "inline-size",
                 cursor: tool === "pen" ? "crosshair" : undefined,
+                touchAction: tool === "pen" || editLayer ? "none" : "pan-x pan-y",
               }}
             >
               {/* Fond */}
@@ -1832,23 +2310,27 @@ const selHasGroup = doc.layers.some((l) => selIds.includes(l.id) && l.groupId);
               {doc.layers.map((l, i) => {
                 if (!l.visible) return null;
                 const selected = selIds.includes(l.id);
-const single = selIds.length === 1;
+                const single = selIds.length === 1;
                 const cropping = cropId === l.id && hasCrop(l);
+                const editing = editLayer?.id === l.id;
                 return (
                   <div
                     key={l.id}
                     data-layer={l.id}
                     onPointerDown={(e) => layerDown(e, l, cropping)}
-                    onDoubleClick={() => {
+                    onDoubleClick={(e) => {
                       if (l.kind === "text") { select(l.id); setTimeout(() => textAreaRef.current?.focus(), 60); }
                       else if (l.kind === "image") startCropMode(l.id);
+                      else if (l.kind === "path") {
+                        if (editing) { const p = canvasPct(e); if (p) addPointAt(l.id, p, 40); }
+                        else enterEditPath(l.id);
+                      }
                     }}
                     style={{
                       position: "absolute", left: `${l.x}%`, top: `${l.y}%`, width: `${l.w}%`,
                       pointerEvents: tool === "pen" ? "none" : "auto",
                       height: l.kind === "text" ? "auto" : `${l.h}%`, zIndex: cropping ? 9000 : i + 1,
                       cursor: cropping ? "grab" : l.locked ? "default" : "move", touchAction: "none", userSelect: "none",
-                      
                       transform: l.rotation ? `rotate(${l.rotation}deg)` : undefined,
                       transformOrigin: "center center",
                     }}
@@ -1882,13 +2364,14 @@ const single = selIds.length === 1;
                         <div style={{ width: "100%", height: "100%", background: l.color, borderRadius: l.shape === "circle" ? "50%" : 0 }} />
                       )}
                       {l.kind === "path" && (
-  <svg width="100%" height="100%" viewBox={`0 0 ${(l.w / 100) * W} ${(l.h / 100) * H}`} preserveAspectRatio="none"
-    style={{ overflow: "visible", display: "block", pointerEvents: "none" }}>
-    <path d={pathD(l.pts ?? [], !!l.closed, (l.w / 100) * W, (l.h / 100) * H)}
-      fill={l.fill && l.fill !== "none" ? l.fill : "none"} stroke={l.color} strokeWidth={l.sw ?? 8}
-      strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)}
+                        <svg width="100%" height="100%" viewBox={`0 0 ${(l.w / 100) * W} ${(l.h / 100) * H}`} preserveAspectRatio="none"
+                          style={{ overflow: "visible", display: "block", pointerEvents: "none" }}>
+                          <path d={pathD(l.pts ?? [], !!l.closed, (l.w / 100) * W, (l.h / 100) * H)}
+                            fill={l.fill && l.fill !== "none" ? l.fill : "none"} stroke={l.color} strokeWidth={l.sw ?? 8}
+                            strokeLinecap={l.dash === "dotted" ? "round" : l.cap ?? "round"} strokeLinejoin={l.join ?? "round"}
+                            strokeDasharray={l.dash && l.dash !== "solid" ? dashArray(l.dash, l.sw ?? 8).join(" ") : undefined} />
+                        </svg>
+                      )}
                     </div>
                     {selected && (
                       <>
@@ -1897,39 +2380,43 @@ const single = selIds.length === 1;
                           CROP_HANDLES.map((c) => (
                             <span key={c.h}
                               onPointerDown={(e) => startCrop(e, l, c.h)}
-                              className="absolute h-4 w-4 rounded-sm border-2 border-white bg-[#FF6B00]"
-                              style={{ ...c.style, cursor: c.cursor, touchAction: "none" }}
+                              className="absolute rounded-sm border-2 border-white bg-[#FF6B00]"
+                              style={{
+                                ...c.style, cursor: c.cursor, touchAction: "none",
+                                width: isTouch ? 26 : 16, height: isTouch ? 26 : 16,
+                                ...(isTouch ? { transform: "scale(1)" } : {}),
+                              }}
                               aria-label="Rogner" />
                           ))
                         ) : (
-                          !l.locked && single && (
+                          !l.locked && single && !editing && (
                             <>
-                              <span className="pointer-events-none absolute -top-6 left-1/2 h-5 w-px -translate-x-1/2 bg-[#FF6B00]" />
+                              <span className="pointer-events-none absolute left-1/2 w-px -translate-x-1/2 bg-[#FF6B00]" style={{ top: -22, height: 22 }} />
                               <span
                                 onPointerDown={(e) => startRotate(e, l)}
-                                className="absolute -top-10 left-1/2 h-5 w-5 -translate-x-1/2 cursor-grab rounded-full border-2 border-white bg-[#FF6B00]"
-                                style={{ touchAction: "none" }}
+                                className="absolute cursor-grab rounded-full border-2 border-white bg-[#FF6B00]"
+                                style={{ touchAction: "none", top: -(22 + rs), width: rs, height: rs, left: "50%", marginLeft: -rs / 2 }}
                                 aria-label="Faire pivoter"
                                 title="Faire pivoter (Maj = pas de 15°)"
                               />
                               <span
                                 onPointerDown={(e) => startDrag(e, l, "resize")}
-                                className="absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-[#FF6B00]"
-                                style={{ touchAction: "none" }}
+                                className="absolute cursor-nwse-resize rounded-sm border-2 border-white bg-[#FF6B00]"
+                                style={{ touchAction: "none", width: hs, height: hs, right: -hs / 2, bottom: -hs / 2 }}
                                 aria-label="Redimensionner"
                               />
                               {l.kind === "text" && (
                                 <>
                                   <span
                                     onPointerDown={(e) => startDrag(e, l, "text-w")}
-                                    className="absolute -left-2 top-1/2 h-7 w-2.5 -translate-y-1/2 cursor-ew-resize rounded-full border border-white bg-[#FF6B00]"
-                                    style={{ touchAction: "none" }}
+                                    className="absolute top-1/2 -translate-y-1/2 cursor-ew-resize rounded-full border border-white bg-[#FF6B00]"
+                                    style={{ touchAction: "none", width: sideW, height: sideH, left: -sideW / 2 - 2 }}
                                     aria-label="Ajuster la largeur du texte (gauche)"
                                   />
                                   <span
                                     onPointerDown={(e) => startDrag(e, l, "text-e")}
-                                    className="absolute -right-2 top-1/2 h-7 w-2.5 -translate-y-1/2 cursor-ew-resize rounded-full border border-white bg-[#FF6B00]"
-                                    style={{ touchAction: "none" }}
+                                    className="absolute top-1/2 -translate-y-1/2 cursor-ew-resize rounded-full border border-white bg-[#FF6B00]"
+                                    style={{ touchAction: "none", width: sideW, height: sideH, right: -sideW / 2 - 2 }}
                                     aria-label="Ajuster la largeur du texte (droite)"
                                   />
                                 </>
@@ -1942,33 +2429,101 @@ const single = selIds.length === 1;
                   </div>
                 );
               })}
-{tool === "pen" && (
-  <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${W} ${H}`} style={{ zIndex: 9990, overflow: "visible" }}>
-    <path d={pathD(penPts, false, W, H)} fill="none" stroke="#FF6B00" strokeWidth={5} strokeLinecap="round" />
-    {penPts.map((a, i) => {
-      const ax = (a.x / 100) * W, ay = (a.y / 100) * H;
-      const ox = ((a.x + a.dx) / 100) * W, oy = ((a.y + a.dy) / 100) * H;
-      const ix = ((a.x - a.dx) / 100) * W, iy = ((a.y - a.dy) / 100) * H;
-      const curved = a.dx !== 0 || a.dy !== 0;
-      return (
-        <g key={i}>
-          {curved && (
-            <>
-              <line x1={ix} y1={iy} x2={ox} y2={oy} stroke="#fff" strokeWidth={2} />
-              <circle cx={ox} cy={oy} r={7} fill="#fff" />
-              <circle cx={ix} cy={iy} r={7} fill="#fff" />
-            </>
-          )}
-          <circle cx={ax} cy={ay} r={i === 0 ? 13 : 9} fill={i === 0 ? "#FF6B00" : "#fff"} stroke={i === 0 ? "#fff" : "#FF6B00"} strokeWidth={3} />
-        </g>
-      );
-    })}
-  </svg>
-)}
-{marquee && (
-  <div className="pointer-events-none absolute border border-dashed border-[#FF6B00] bg-[#FF6B00]/10"
-    style={{ left: `${marquee.x0}%`, top: `${marquee.y0}%`, width: `${marquee.x1 - marquee.x0}%`, height: `${marquee.y1 - marquee.y0}%`, zIndex: 9995 }} />
-)}
+
+              {/* Plume : points, poignées et segments du tracé sélectionné */}
+              {editLayer && editAbs && (
+                <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+                  style={{ zIndex: 9500, overflow: "visible", pointerEvents: "none" }}>
+                  <path d={pathD(editAbs, !!editLayer.closed, W, H)} fill="none" stroke="#FF6B00" strokeWidth={unit(1.5)} opacity={0.9} />
+                  {addMode && (
+                    <rect x={0} y={0} width={W} height={H} fill="transparent"
+                      style={{ pointerEvents: "all", cursor: "copy", touchAction: "none" }}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const p = canvasPct(e);
+                        if (p && !addPointAt(editLayer.id, p, isTouch ? 46 : 30)) notify("Touche plus près du tracé pour ajouter un point.", "error");
+                      }} />
+                  )}
+                  {/* Poignées du point sélectionné */}
+                  {validSel != null && (() => {
+                    const p = editAbs[validSel]!;
+                    const X = (v: number) => (v / 100) * W, Y = (v: number) => (v / 100) * H;
+                    const ih = inHandle(p);
+                    const rH = unit(isTouch ? 8 : 5), rHit = unit(isTouch ? 22 : 12);
+                    const handles: { key: "out" | "in"; x: number; y: number }[] = [];
+                    if (p.dx !== 0 || p.dy !== 0 || p.ix != null) handles.push({ key: "out", x: p.x + p.dx, y: p.y + p.dy }, { key: "in", x: p.x + ih.x, y: p.y + ih.y });
+                    return handles.map((h) => (
+                      <g key={h.key}>
+                        <line x1={X(p.x)} y1={Y(p.y)} x2={X(h.x)} y2={Y(h.y)} stroke="#fff" strokeWidth={unit(1.5)} opacity={0.85} />
+                        <circle cx={X(h.x)} cy={Y(h.y)} r={rHit} fill="transparent"
+                          style={{ pointerEvents: "all", cursor: "pointer", touchAction: "none" }}
+                          onPointerDown={(e) => startHandleDrag(e, editLayer, validSel, h.key)} />
+                        <circle cx={X(h.x)} cy={Y(h.y)} r={rH} fill="#fff" stroke="#FF6B00" strokeWidth={unit(1.5)} style={{ pointerEvents: "none" }} />
+                      </g>
+                    ));
+                  })()}
+                  {/* Points */}
+                  {editAbs.map((a, i) => {
+                    const ax = (a.x / 100) * W, ay = (a.y / 100) * H;
+                    const r = unit(isTouch ? 9 : 6.5), rHit = unit(isTouch ? 24 : 12);
+                    const on = i === validSel;
+                    const corner = nodeKind(a) === "corner";
+                    return (
+                      <g key={i}>
+                        <circle cx={ax} cy={ay} r={rHit} fill="transparent"
+                          style={{ pointerEvents: "all", cursor: "move", touchAction: "none" }}
+                          onPointerDown={(e) => startPtDrag(e, editLayer, i)}
+                          onDoubleClick={() => setNodeKind(editLayer.id, i, corner ? "smooth" : "corner")} />
+                        {corner ? (
+                          <rect x={ax - r} y={ay - r} width={r * 2} height={r * 2} fill={on ? "#FF6B00" : "#fff"} stroke={on ? "#fff" : "#FF6B00"} strokeWidth={unit(2)} style={{ pointerEvents: "none" }} />
+                        ) : (
+                          <circle cx={ax} cy={ay} r={r} fill={on ? "#FF6B00" : "#fff"} stroke={on ? "#fff" : "#FF6B00"} strokeWidth={unit(2)} style={{ pointerEvents: "none" }} />
+                        )}
+                      </g>
+                    );
+                  })}
+                </svg>
+              )}
+
+              {/* Plume : dessin en cours */}
+              {tool === "pen" && (
+                <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ zIndex: 9990, overflow: "visible" }}>
+                  <path d={pathD(penPts, false, W, H)} fill="none" stroke={penStyle.color} strokeWidth={penStyle.sw}
+                    strokeLinecap={penStyle.dash === "dotted" ? "round" : "round"} strokeLinejoin="round"
+                    strokeDasharray={penStyle.dash !== "solid" ? dashArray(penStyle.dash, penStyle.sw).join(" ") : undefined} opacity={0.75} />
+                  {penPreview && (
+                    <path d={penPreview} fill="none" stroke="#fff" strokeWidth={unit(1.5)} strokeDasharray={`${unit(5)} ${unit(4)}`} opacity={0.8} />
+                  )}
+                  {penPts.length >= 3 && penFirst && (
+                    <circle cx={(penFirst.x / 100) * W} cy={(penFirst.y / 100) * H} r={unit(hoverNearFirst ? 17 : 13)}
+                      fill={hoverNearFirst ? "rgba(255,107,0,0.35)" : "none"} stroke="#FF6B00" strokeWidth={unit(2)} strokeDasharray={`${unit(4)} ${unit(3)}`} />
+                  )}
+                  {penPts.map((a, i) => {
+                    const ax = (a.x / 100) * W, ay = (a.y / 100) * H;
+                    const ox = ((a.x + a.dx) / 100) * W, oy = ((a.y + a.dy) / 100) * H;
+                    const ix = ((a.x - a.dx) / 100) * W, iy = ((a.y - a.dy) / 100) * H;
+                    const curved = a.dx !== 0 || a.dy !== 0;
+                    const r = unit(isTouch ? 9 : 6.5);
+                    return (
+                      <g key={i}>
+                        {curved && (
+                          <>
+                            <line x1={ix} y1={iy} x2={ox} y2={oy} stroke="#fff" strokeWidth={unit(1.5)} />
+                            <circle cx={ox} cy={oy} r={unit(isTouch ? 6 : 4.5)} fill="#fff" />
+                            <circle cx={ix} cy={iy} r={unit(isTouch ? 6 : 4.5)} fill="#fff" />
+                          </>
+                        )}
+                        <circle cx={ax} cy={ay} r={i === 0 ? r * 1.35 : r} fill={i === 0 ? "#FF6B00" : "#fff"} stroke={i === 0 ? "#fff" : "#FF6B00"} strokeWidth={unit(2)} />
+                      </g>
+                    );
+                  })}
+                </svg>
+              )}
+              {marquee && (
+                <div className="pointer-events-none absolute border border-dashed border-[#FF6B00] bg-[#FF6B00]/10"
+                  style={{ left: `${marquee.x0}%`, top: `${marquee.y0}%`, width: `${marquee.x1 - marquee.x0}%`, height: `${marquee.y1 - marquee.y0}%`, zIndex: 9995 }} />
+              )}
               {/* Guides d'alignement */}
               {guides.x !== null && <div className="pointer-events-none absolute inset-y-0 w-px bg-[#FF6B00]" style={{ left: `${guides.x}%`, zIndex: 9999 }} />}
               {guides.y !== null && <div className="pointer-events-none absolute inset-x-0 h-px bg-[#FF6B00]" style={{ top: `${guides.y}%`, zIndex: 9999 }} />}
@@ -2007,280 +2562,361 @@ const single = selIds.length === 1;
           </div>
         </main>
 
-        {/* PANNEAU DE DROITE */}
-        <aside className="w-full shrink-0 border-t border-white/10 bg-[#0F0F0F] lg:max-h-[calc(100vh-4.5rem)] lg:w-[380px] lg:overflow-y-auto lg:border-l lg:border-t-0">
-          <div role="tablist" className="sticky top-0 z-30 grid grid-cols-4 gap-1 border-b border-white/10 bg-[#0F0F0F] p-2">
-            {([
-              ["add", "Ajouter", "＋"],
-              ["edit", "Édition", "✎"],
-              ["background", "Fond", "◐"],
-              ["layers", "Calques", "☰"],
-            ] as [Tab, string, string][]).map(([id, label, icon]) => (
-              <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
-                className={`flex flex-col items-center gap-0.5 rounded-lg px-1 py-2 text-[11px] font-medium transition ${tab === id ? "bg-[#FF6B00] text-white" : "text-white/55 hover:bg-white/5 hover:text-white"}`}>
-                <span className="text-base leading-none">{icon}</span>
-                {label}
+        {/* PANNEAU DE DROITE (ordinateur) / TIROIR (mobile) */}
+        {(!isMobile || sheetOpen) && (
+          <aside className={isMobile
+            ? "h-[46dvh] w-full shrink-0 overflow-y-auto border-t border-white/10 bg-[#0F0F0F]"
+            : "w-full shrink-0 border-t border-white/10 bg-[#0F0F0F] lg:max-h-[calc(100vh-4.5rem)] lg:w-[380px] lg:overflow-y-auto lg:border-l lg:border-t-0"}>
+            {isMobile ? (
+              <button type="button" onClick={() => setSheetOpen(false)} aria-label="Réduire le panneau"
+                className="sticky top-0 z-30 flex w-full items-center justify-center gap-2 border-b border-white/10 bg-[#0F0F0F] py-2 text-[11px] text-white/50">
+                <span className="h-1 w-10 rounded-full bg-white/25" /> Réduire ▾
               </button>
-            ))}
-          </div>
+            ) : tabBar}
 
-          <div className="px-4 pb-8">
-            <input ref={bgInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void handleFiles(e.target.files, "bg"); e.target.value = ""; }} />
-            <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { void handleFiles(e.target.files, "photo"); e.target.value = ""; }} />
-            <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void handleFiles(e.target.files, "logo"); e.target.value = ""; }} />
+            <div className="px-4 pb-8">
+              <input ref={bgInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void handleFiles(e.target.files, "bg"); e.target.value = ""; }} />
+              <input ref={photoInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { void handleFiles(e.target.files, "photo"); e.target.value = ""; }} />
+              <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { void handleFiles(e.target.files, "logo"); e.target.value = ""; }} />
 
-            {/* ───── AJOUTER ───── */}
-            {tab === "add" && (
-              <>
-                <Section title="Texte">
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => addText("title")} className={btn + " !py-4"} style={{ fontFamily: F.archivo }}>Titre</button>
-                    <button type="button" onClick={() => addText("subtitle")} className={btn + " !py-4"} style={{ fontWeight: 600 }}>Sous-titre</button>
-                    <button type="button" onClick={() => addText("body")} className={btn + " !py-4"}>Paragraphe</button>
-                    <button type="button" onClick={() => addText("price")} className={btn + " !py-4"} style={{ fontFamily: F.archivo }}>Prix</button>
-                  </div>
-                </Section>
-                <Section title="Texte arabe & coranique">
-                  <div className="grid grid-cols-3 gap-2">
-                    <button type="button" onClick={() => addText("ar-title")} className={btn + " flex flex-col items-center gap-1 !py-3"}>
-                      <span className="text-xl leading-none" style={{ fontFamily: A.reem }} dir="rtl">عنوان</span>
-                      <span className="text-[10px] text-white/50">Titre</span>
-                    </button>
-                    <button type="button" onClick={() => addText("ar-body")} className={btn + " flex flex-col items-center gap-1 !py-3"}>
-                      <span className="text-xl leading-none" style={{ fontFamily: A.naskh }} dir="rtl">نص</span>
-                      <span className="text-[10px] text-white/50">Texte</span>
-                    </button>
-                    <button type="button" onClick={() => addText("ar-quran")} className={btn + " flex flex-col items-center gap-1 !py-3"}>
-                      <span className="text-xl leading-none" style={{ fontFamily: A.quran }} dir="rtl">آية</span>
-                      <span className="text-[10px] text-white/50">Verset</span>
-                    </button>
-                  </div>
-                  <p className="text-[11px] leading-4 text-white/45">Le texte arabe s'écrit de droite à gauche automatiquement. Pour un verset, colle le texte depuis un Mushaf ou un site de référence (avec ses signes de vocalisation), puis choisis une police du groupe « Arabe & coranique ».</p>
-                </Section>
-                <Section title="Images">
-                  <button type="button" onClick={() => photoInputRef.current?.click()} disabled={busy}
-                    className="w-full rounded-lg bg-white px-3 py-3 text-xs font-bold text-black transition hover:bg-white/85 disabled:opacity-60">+ Ajouter une ou plusieurs photos</button>
-                  <button type="button" onClick={() => logoInputRef.current?.click()} disabled={busy} className={btn + " w-full"}>+ Ajouter le logo Qahwa</button>
-                  <p className="text-[11px] leading-4 text-white/45">Les images sont réduites automatiquement pour garder l'éditeur rapide. Double-clique une photo pour la recadrer. Pour une photo plein cadre, utilise l'onglet Fond.</p>
-                </Section>
-                <Section title="Dessin">
-  <button type="button" onClick={togglePen} className={btn + ` w-full ${tool === "pen" ? chipOn : ""}`}>✒ Outil Plume (P)</button>
-  <p className="text-[11px] leading-4 text-white/45">Clique pour poser des points, glisse pour faire une courbe, clique sur le premier point pour fermer la forme. Le tracé devient un calque : couleur, épaisseur, remplissage, rotation et taille se règlent dans l'onglet Édition.</p>
-</Section>
-                <Section title="Formes">
-                  <div className="grid grid-cols-3 gap-2">
-                    <button type="button" onClick={() => addLayer(shapeLayer({ shape: "rectangle" }), true)} className={btn + " !py-3"}>▰ Rectangle</button>
-                    <button type="button" onClick={() => addLayer(shapeLayer({ shape: "circle", h: (34 * W) / H }), true)} className={btn + " !py-3"}>● Cercle</button>
-                    <button type="button" onClick={() => addLayer(shapeLayer({ shape: "line" }), true)} className={btn + " !py-3"}>━ Ligne</button>
-                  </div>
-                  <p className="text-[11px] leading-4 text-white/45">Un rectangle peut servir de bandeau de couleur derrière un texte : il se place automatiquement sous les textes.</p>
-                </Section>
-                <Section title="Raccourcis">
-                  <p className="text-[11px] leading-5 text-white/55">Ctrl+Z annuler · Ctrl+Maj+Z rétablir · Ctrl+D dupliquer · Suppr supprimer · flèches pour déplacer (Maj = plus loin) · Alt en glissant pour désactiver l'aimantation · Ctrl+S enregistrer · Ctrl+molette zoomer le plan · Entrée ou Échap pour terminer un recadrage.</p>
-                </Section>
-
-              
-              </>
-            )}
-
-            {/* ───── ÉDITION ───── */}
-            {tab === "edit" && !sel && (
-              <div className="mt-6 rounded-xl border border-dashed border-white/15 p-6 text-center text-xs leading-5 text-white/55">
-                Aucun élément sélectionné.<br />Clique sur un texte, une image ou une forme de l'affiche, ou choisis-en un dans l'onglet Calques.
-              </div>
-            )}
-
-            {tab === "edit" && sel && (
-              <>
-                {sel.kind === "text" && (
-                  <>
-                    <Section title="Texte">
-                      <textarea ref={textAreaRef} rows={3} aria-label="Contenu du texte" value={sel.text ?? ""} dir="auto"
-                        onChange={(e) => updateLayer(sel.id, { text: e.target.value }, `text:${sel.id}`)}
-                        className="w-full resize-y rounded-lg border border-white/10 bg-[#121212] px-3 py-2.5 text-sm text-white outline-none focus:border-[#FF6B00]" />
-                      {isRtlText(sel.text ?? "") && (sel.align ?? "left") === "left" && (
-                        <button type="button" className={btn + " w-full"} onClick={() => updateLayer(sel.id, { align: "right" })}>
-                          Texte arabe détecté : aligner à droite
-                        </button>
-                      )}
-                      <p className="text-[11px] leading-4 text-white/45">Astuce : tire les poignées sur les côtés du texte pour changer la largeur de son cadre ; le texte se réorganise sur plus ou moins de lignes.</p>
-                    </Section>
-                    <Section title="Police">
-                      <StudioSelect value={sel.fontFamily ?? F.inter} onChange={(v) => updateLayer(sel.id, { fontFamily: v })}
-                        options={FONTS.map((f) => ({ ...f, font: f.value }))} />
-                      <Range label="Taille" value={sel.fontSize ?? 40} min={12} max={300} unit=" px" onChange={(v) => updateLayer(sel.id, { fontSize: v })} />
-                      <Range label="Interligne" value={sel.lineHeight ?? 1.2} min={0.8} max={3} step={0.05} onChange={(v) => updateLayer(sel.id, { lineHeight: v })} />
-                      <StudioSelect value={String(sel.fontWeight ?? 700)} onChange={(v) => updateLayer(sel.id, { fontWeight: Number(v) })} options={WEIGHTS} />
-                      <Seg<Align> value={sel.align ?? "left"} onChange={(v) => updateLayer(sel.id, { align: v })}
-                        options={[{ label: "Gauche", value: "left" }, { label: "Centre", value: "center" }, { label: "Droite", value: "right" }]} />
-                      <div className="grid grid-cols-2 gap-2">
-                        <Toggle label="Majuscules" on={!!sel.uppercase} onChange={(v) => updateLayer(sel.id, { uppercase: v })} />
-                        <Toggle label="Ombre" on={!!sel.shadow} onChange={(v) => updateLayer(sel.id, { shadow: v })} />
-                      </div>
-                    </Section>
-                  </>
-                )}
-
-                {sel.kind !== "image" && (
-  <Section title={sel.kind === "path" ? "Couleur du trait" : "Couleur"}>
-                    <ColorField value={sel.color} onChange={(v) => updateLayer(sel.id, { color: v })} />
-                  </Section>
-                  
-                )}{sel.kind === "path" && (
-  <Section title="Tracé">
-    <Range label="Épaisseur du trait" value={sel.sw ?? 8} min={1} max={80} unit=" px" onChange={(v) => updateLayer(sel.id, { sw: v })} />
-    <div className="grid grid-cols-2 gap-2">
-      <Toggle label="Remplissage" on={!!sel.fill && sel.fill !== "none"} onChange={(v) => updateLayer(sel.id, { fill: v ? sel.color : "none" })} />
-      <Toggle label="Tracé fermé" on={!!sel.closed} onChange={(v) => updateLayer(sel.id, { closed: v })} />
-    </div>
-    {sel.fill && sel.fill !== "none" && <ColorField value={sel.fill} onChange={(v) => updateLayer(sel.id, { fill: v })} />}
-  </Section>
-)}
-
-                {sel.kind === "image" && (
-                  <Section title="Recadrage de la photo">
-                    <button type="button" disabled={sel.locked}
-                      className={btn + ` w-full ${cropLayer ? "!border-[#FF6B00] !text-white" : ""}`}
-                      onClick={() => (cropLayer ? setCropId(null) : startCropMode(sel.id))}>
-                      {cropLayer ? "✓ Terminer le recadrage" : "✂ Recadrer la photo"}
-                    </button>
-                    {hasCrop(sel) && (
-                      <Range label="Zoom de la photo" value={zoomOf(sel)} min={50} max={400} unit="%" onChange={(v) => setCropZoom(sel.id, v)} />
-                    )}
+              {/* ───── AJOUTER ───── */}
+              {tab === "add" && (
+                <>
+                  <Section title="Texte">
                     <div className="grid grid-cols-2 gap-2">
-                      <button type="button" className={btn} onClick={() => setImageFit(sel.id, "cover")}>Remplir le cadre</button>
-                      <button type="button" className={btn} onClick={() => setImageFit(sel.id, "contain")}>Image entière</button>
+                      <button type="button" onClick={() => addText("title")} className={btn + " !py-4"} style={{ fontFamily: F.archivo }}>Titre</button>
+                      <button type="button" onClick={() => addText("subtitle")} className={btn + " !py-4"} style={{ fontWeight: 600 }}>Sous-titre</button>
+                      <button type="button" onClick={() => addText("body")} className={btn + " !py-4"}>Paragraphe</button>
+                      <button type="button" onClick={() => addText("price")} className={btn + " !py-4"} style={{ fontFamily: F.archivo }}>Prix</button>
                     </div>
-                    <p className="text-[11px] leading-4 text-white/45">En recadrage : glisse la photo pour la déplacer, utilise la molette pour zoomer et tire les poignées du cadre pour rogner.</p>
                   </Section>
-                )}
-
-                <Section title="Taille et transparence">
-                  <Range label="Transparence" value={100 - sel.opacity} min={0} max={95} unit="%" onChange={(v) => updateLayer(sel.id, { opacity: 100 - v })} />
-                  {sel.kind === "image" && hasCrop(sel) ? (
-                    <Range label="Taille de la photo" value={sel.w} min={3} max={Math.max(3.1, Math.min(100, (sel.w * 100) / sel.h))} step={0.5} unit="%" onChange={(v) => resizeProportional(sel.id, v)} />
-                  ) : (
-                    <>
-                      <Range label={sel.kind === "text" ? "Largeur du cadre de texte" : "Largeur"} value={sel.w} min={3} max={100} unit="%" onChange={(v) => updateLayer(sel.id, { w: v, x: Math.min(sel.x, 100 - v) })} />
-                      {sel.kind !== "text" && (
-                        <Range label="Hauteur" value={sel.h} min={0.3} max={100} step={0.1} unit="%" onChange={(v) => updateLayer(sel.id, { h: v, y: Math.min(sel.y, 100 - v) })} />
-                      )}
-                    </>
-                  )}
-                  {sel.kind === "shape" && sel.shape === "rectangle" && (
-                    <button type="button" className={btn + " w-full"} onClick={() => updateLayer(sel.id, { x: 0, y: 0, w: 100, h: 100 })}>Couvrir toute l'affiche</button>
-                  )}
-                </Section>
-                <Section title="Rotation">
-                  <Range label="Angle" value={sel.rotation ?? 0} min={-180} max={180} step={1} unit="°"
-                    onChange={(v) => updateLayer(sel.id, { rotation: v })} />
-                  <div className="grid grid-cols-3 gap-2">
-                    <button type="button" className={btn} disabled={sel.locked}
-                      onClick={() => updateLayer(sel.id, { rotation: normAngle((sel.rotation ?? 0) - 90) }, `rot:${sel.id}`)}>↺ −90°</button>
-                    <button type="button" className={btn} disabled={sel.locked}
-                      onClick={() => updateLayer(sel.id, { rotation: normAngle((sel.rotation ?? 0) + 90) }, `rot:${sel.id}`)}>↻ +90°</button>
-                    <button type="button" className={btn} disabled={sel.locked || !sel.rotation}
-                      onClick={() => updateLayer(sel.id, { rotation: 0 }, `rot:${sel.id}`)}>Remettre 0°</button>
-                  </div>
-                </Section>
-                <Section title="Position">
-                  <div className="grid grid-cols-3 gap-2">
-                    {([["⇤ Gauche", "l"], ["↔ Centre", "c"], ["⇥ Droite", "r"], ["⤒ Haut", "t"], ["↕ Milieu", "m"], ["⤓ Bas", "b"]] as const).map(([label, a]) => (
-                      <button key={a} type="button" className={btn + " !px-1"} onClick={() => alignLayer(sel.id, a)}>{label}</button>
-                    ))}
-                  </div>
-                </Section>
-
-                <Section title="Élément">
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" className={btn} onClick={() => updateLayer(sel.id, { locked: !sel.locked })}>{sel.locked ? "🔓 Déverrouiller" : "🔒 Verrouiller"}</button>
-                    <button type="button" className={btn} onClick={() => duplicateLayer(sel.id)}>Dupliquer</button>
-                    <button type="button" className={btn} onClick={() => moveLayer(sel.id, "back")}>Tout au fond</button>
-                    <button type="button" className={btn} onClick={() => moveLayer(sel.id, "front")}>Tout devant</button>
-                  </div>
-                  <button type="button" onClick={() => removeLayer(sel.id)}
-                    className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20">Supprimer cet élément</button>
-                </Section>
-              </>
-            )}
-
-            {/* ───── FOND ───── */}
-            {tab === "background" && (
-              <>
-                <Section title="Couleurs prêtes à l'emploi">
-                  <div className="grid grid-cols-3 gap-2">
-                    {BG_PRESETS.map((p) => (
-                      <button key={p.name} type="button" onClick={() => updateBg({ c1: p.c1, c2: p.c2, angle: p.angle })}
-                        className="overflow-hidden rounded-lg border border-white/15 text-[11px] transition hover:border-[#FF6B00]">
-                        <span className="block h-12" style={{ background: bgCss({ ...doc.bg, c1: p.c1, c2: p.c2, angle: p.angle }) }} />
-                        <span className="block bg-[#121212] py-1.5 text-white/75">{p.name}</span>
+                  <Section title="Texte arabe & coranique">
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" onClick={() => addText("ar-title")} className={btn + " flex flex-col items-center gap-1 !py-3"}>
+                        <span className="text-xl leading-none" style={{ fontFamily: A.reem }} dir="rtl">عنوان</span>
+                        <span className="text-[10px] text-white/50">Titre</span>
                       </button>
-                    ))}
-                  </div>
-                </Section>
-                <Section title="Couleurs personnalisées">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><p className="mb-1.5 text-[11px] text-white/60">Couleur 1</p><input type="color" aria-label="Couleur 1" value={doc.bg.c1} onChange={(e) => updateBg({ c1: e.target.value })} className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-[#121212] p-1" /></div>
-                    <div><p className="mb-1.5 text-[11px] text-white/60">Couleur 2</p><input type="color" aria-label="Couleur 2" value={doc.bg.c2} onChange={(e) => updateBg({ c2: e.target.value })} className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-[#121212] p-1" /></div>
-                  </div>
-                  <Range label="Angle du dégradé" value={doc.bg.angle} min={0} max={360} unit="°" onChange={(v) => updateBg({ angle: v })} />
-                  <button type="button" className={btn + " w-full"} onClick={() => updateBg({ c2: doc.bg.c1 })}>Couleur unie (sans dégradé)</button>
-                </Section>
-                <Section title="Photo de fond">
-                  <button type="button" onClick={() => bgInputRef.current?.click()} disabled={busy} className={btn + " w-full"}>
-                    {doc.bg.image ? "Changer la photo" : "+ Ajouter une photo de fond"}
-                  </button>
-                  {doc.bg.image && (
+                      <button type="button" onClick={() => addText("ar-body")} className={btn + " flex flex-col items-center gap-1 !py-3"}>
+                        <span className="text-xl leading-none" style={{ fontFamily: A.naskh }} dir="rtl">نص</span>
+                        <span className="text-[10px] text-white/50">Texte</span>
+                      </button>
+                      <button type="button" onClick={() => addText("ar-quran")} className={btn + " flex flex-col items-center gap-1 !py-3"}>
+                        <span className="text-xl leading-none" style={{ fontFamily: A.quran }} dir="rtl">آية</span>
+                        <span className="text-[10px] text-white/50">Verset</span>
+                      </button>
+                    </div>
+                    <p className="text-[11px] leading-4 text-white/45">Le texte arabe s'écrit de droite à gauche automatiquement. Pour un verset, colle le texte depuis un Mushaf ou un site de référence (avec ses signes de vocalisation), puis choisis une police du groupe « Arabe & coranique ».</p>
+                  </Section>
+                  <Section title="Images">
+                    <button type="button" onClick={() => photoInputRef.current?.click()} disabled={busy}
+                      className="w-full rounded-lg bg-white px-3 py-3 text-xs font-bold text-black transition hover:bg-white/85 disabled:opacity-60">+ Ajouter une ou plusieurs photos</button>
+                    <button type="button" onClick={() => logoInputRef.current?.click()} disabled={busy} className={btn + " w-full"}>+ Ajouter le logo Qahwa</button>
+                    <p className="text-[11px] leading-4 text-white/45">Les images sont réduites automatiquement pour garder l'éditeur rapide. Double-clique (ou touche « Recadrer ») une photo pour la recadrer. Pour une photo plein cadre, utilise l'onglet Fond.</p>
+                  </Section>
+                  <Section title="Dessin (plume)">
+                    <button type="button" onClick={() => { togglePen(); }} className={btn + ` w-full ${tool === "pen" ? chipOn : ""}`}>✒ {tool === "pen" ? "Plume active — toucher pour arrêter" : "Outil Plume (P)"}</button>
+                    <p className="text-[11px] font-medium text-white/60">Style du prochain tracé</p>
+                    <ColorField value={penStyle.color} onChange={(v) => setPenStyle((s) => ({ ...s, color: v }))} />
+                    <Range label="Épaisseur du trait" value={penStyle.sw} min={1} max={60} unit=" px" onChange={(v) => setPenStyle((s) => ({ ...s, sw: v }))} />
+                    <Seg<Dash> value={penStyle.dash} onChange={(v) => setPenStyle((s) => ({ ...s, dash: v }))}
+                      options={[{ label: "Plein", value: "solid" }, { label: "Tirets", value: "dashed" }, { label: "Pointillés", value: "dotted" }]} />
+                    <p className="text-[11px] leading-4 text-white/45">Clique ou touche pour poser un point, glisse pour faire une courbe. Reprends un point déjà posé pour le déplacer. Clique sur le premier point (ou « Fermer ») pour fermer la forme, « Terminer » pour garder un tracé ouvert. Ensuite tu peux encore déplacer les points, tirer les poignées, en ajouter ou en supprimer.</p>
+                  </Section>
+                  <Section title="Formes">
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" onClick={() => addLayer(shapeLayer({ shape: "rectangle" }), true)} className={btn + " !py-3"}>▰ Rectangle</button>
+                      <button type="button" onClick={() => addLayer(shapeLayer({ shape: "circle", h: (34 * W) / H }), true)} className={btn + " !py-3"}>● Cercle</button>
+                      <button type="button" onClick={() => addLayer(shapeLayer({ shape: "line" }), true)} className={btn + " !py-3"}>━ Ligne</button>
+                    </div>
+                    <p className="text-[11px] leading-4 text-white/45">Un rectangle peut servir de bandeau de couleur derrière un texte : il se place automatiquement sous les textes.</p>
+                  </Section>
+                  <Section title={isTouch ? "Gestes" : "Raccourcis"}>
+                    {isTouch ? (
+                      <p className="text-[11px] leading-5 text-white/55">Touche un élément pour le sélectionner, glisse-le pour le déplacer. Pince avec deux doigts pour zoomer le plan et fais-le glisser à deux doigts pour le déplacer. Les poignées orange servent à agrandir, pivoter et ajuster la largeur d'un texte.</p>
+                    ) : (
+                      <p className="text-[11px] leading-5 text-white/55">Ctrl+Z annuler · Ctrl+Maj+Z rétablir · Ctrl+D dupliquer · Suppr supprimer · flèches pour déplacer (Maj = plus loin) · Alt en glissant pour désactiver l'aimantation · Ctrl+S enregistrer · Ctrl+molette zoomer le plan · P plume (Maj = angles de 45°, Entrée = terminer) · Entrée ou Échap pour terminer un recadrage ou l'édition des points.</p>
+                    )}
+                  </Section>
+                </>
+              )}
+
+              {/* ───── ÉDITION ───── */}
+              {tab === "edit" && multi && (
+                <>
+                  <Section title={`${selIds.length} éléments sélectionnés`}>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" className={btn} onClick={groupSelected}>Grouper</button>
+                      <button type="button" className={btn} disabled={!selHasGroup} onClick={ungroupSelected}>Dégrouper</button>
+                      <button type="button" className={btn} onClick={() => duplicateMany(selIds)}>Dupliquer</button>
+                      <button type="button" className={btn} onClick={() => selIds.forEach((id) => updateLayer(id, { locked: true }))}>🔒 Verrouiller</button>
+                    </div>
+                    <button type="button" onClick={() => removeLayers(selIds)}
+                      className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20">Supprimer la sélection</button>
+                  </Section>
+                  <Section title="Aligner entre eux">
+                    <div className="grid grid-cols-3 gap-2">
+                      {([["⇤ Gauche", "l"], ["↔ Centre", "c"], ["⇥ Droite", "r"], ["⤒ Haut", "t"], ["↕ Milieu", "m"], ["⤓ Bas", "b"]] as const).map(([label, a]) => (
+                        <button key={a} type="button" className={btn + " !px-1"} onClick={() => alignSelection(a)}>{label}</button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] leading-4 text-white/45">Glisse un des éléments pour déplacer toute la sélection. Maj + clic ajoute ou retire un élément.</p>
+                  </Section>
+                </>
+              )}
+
+              {tab === "edit" && !sel && !multi && (
+                <div className="mt-6 rounded-xl border border-dashed border-white/15 p-6 text-center text-xs leading-5 text-white/55">
+                  Aucun élément sélectionné.<br />Clique sur un texte, une image ou une forme de l'affiche, ou choisis-en un dans l'onglet Calques.
+                </div>
+              )}
+
+              {tab === "edit" && sel && (
+                <>
+                  {sel.kind === "text" && (
                     <>
-                      <div className="relative overflow-hidden rounded-lg border border-white/10">
-                        <img src={doc.bg.image} alt="" className="h-32 w-full object-cover" />
-                      </div>
-                      <Range label="Voile sombre (pour lire le texte)" value={doc.bg.overlay} min={0} max={100} unit="%" onChange={(v) => updateBg({ overlay: v })} />
-                      <Range label="Zoom de la photo" value={doc.bg.zoom ?? 100} min={100} max={300} unit="%" onChange={(v) => updateBg({ zoom: v })} />
-                      <Range label="Position horizontale" value={doc.bg.px ?? 50} min={0} max={100} unit="%" onChange={(v) => updateBg({ px: v })} />
-                      <Range label="Position verticale" value={doc.bg.py ?? 50} min={0} max={100} unit="%" onChange={(v) => updateBg({ py: v })} />
-                      <button type="button" className={btn + " w-full"} onClick={() => updateBg({ zoom: 100, px: 50, py: 50 }, "bg:reset")}>Réinitialiser le cadrage</button>
-                      <button type="button" onClick={() => updateBg({ image: null })}
-                        className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-semibold text-red-300 hover:bg-red-500/20">Retirer la photo</button>
+                      <Section title="Texte">
+                        <textarea ref={textAreaRef} rows={3} aria-label="Contenu du texte" value={sel.text ?? ""} dir="auto"
+                          onChange={(e) => updateLayer(sel.id, { text: e.target.value }, `text:${sel.id}`)}
+                          className="w-full resize-y rounded-lg border border-white/10 bg-[#121212] px-3 py-2.5 text-base text-white outline-none focus:border-[#FF6B00] lg:text-sm" />
+                        {isRtlText(sel.text ?? "") && (sel.align ?? "left") === "left" && (
+                          <button type="button" className={btn + " w-full"} onClick={() => updateLayer(sel.id, { align: "right" })}>
+                            Texte arabe détecté : aligner à droite
+                          </button>
+                        )}
+                        <p className="text-[11px] leading-4 text-white/45">Astuce : tire les poignées sur les côtés du texte pour changer la largeur de son cadre ; le texte se réorganise sur plus ou moins de lignes.</p>
+                      </Section>
+                      <Section title="Police">
+                        <StudioSelect value={sel.fontFamily ?? F.inter} onChange={(v) => updateLayer(sel.id, { fontFamily: v })}
+                          options={FONTS.map((f) => ({ ...f, font: f.value }))} />
+                        <Range label="Taille" value={sel.fontSize ?? 40} min={12} max={300} unit=" px" onChange={(v) => updateLayer(sel.id, { fontSize: v })} />
+                        <Range label="Interligne" value={sel.lineHeight ?? 1.2} min={0.8} max={3} step={0.05} onChange={(v) => updateLayer(sel.id, { lineHeight: v })} />
+                        <StudioSelect value={String(sel.fontWeight ?? 700)} onChange={(v) => updateLayer(sel.id, { fontWeight: Number(v) })} options={WEIGHTS} />
+                        <Seg<Align> value={sel.align ?? "left"} onChange={(v) => updateLayer(sel.id, { align: v })}
+                          options={[{ label: "Gauche", value: "left" }, { label: "Centre", value: "center" }, { label: "Droite", value: "right" }]} />
+                        <div className="grid grid-cols-2 gap-2">
+                          <Toggle label="Majuscules" on={!!sel.uppercase} onChange={(v) => updateLayer(sel.id, { uppercase: v })} />
+                          <Toggle label="Ombre" on={!!sel.shadow} onChange={(v) => updateLayer(sel.id, { shadow: v })} />
+                        </div>
+                      </Section>
                     </>
                   )}
-                </Section>
-              </>
-            )}
 
-            {/* ───── CALQUES ───── */}
-            {tab === "layers" && (
-              <Section title={`Calques (${doc.layers.length}) · du premier plan au fond`}>
-                {doc.layers.length === 0 && <p className="text-xs text-white/45">Rien sur l'affiche pour l'instant. Ajoute un texte, une photo ou une forme.</p>}
-                <div className="space-y-1.5">
-                  {[...doc.layers].reverse().map((l) => {
-                    const index = doc.layers.findIndex((x) => x.id === l.id);
-                    return (
-                      <div key={l.id} draggable
-                        onDragStart={() => setDragLayerId(l.id)}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={() => { if (dragLayerId) reorderLayer(dragLayerId, l.id); setDragLayerId(null); }}
-                        className={`flex items-center gap-1.5 rounded-lg border p-1.5 ${selIds.includes(l.id) ? "border-[#FF6B00] bg-[#FF6B00]/10" : "border-white/10 bg-[#121212]"} ${l.visible ? "" : "opacity-50"}`}>
-                        <span className="w-4 cursor-grab text-center text-white/30" aria-hidden="true">⋮⋮</span>
-                        <button type="button" onClick={(e) => (e.shiftKey || e.ctrlKey || e.metaKey ? toggleSelect(l.id, false) : select(l.id, false))} className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs">
-  <span className="w-4 shrink-0 text-center text-white/50">{layerIcon(l)}</span>
-  <span className="truncate" dir="auto">{layerLabel(l)}</span>
-  {l.groupId && <span className="shrink-0 text-[10px] text-[#FF6B00]">⧉ groupe</span>}
-</button>
-                        <button type="button" title={l.visible ? "Masquer" : "Afficher"} onClick={() => updateLayer(l.id, { visible: !l.visible })} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white">{l.visible ? "👁" : "—"}</button>
-                        <button type="button" title={l.locked ? "Déverrouiller" : "Verrouiller"} onClick={() => updateLayer(l.id, { locked: !l.locked })} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white">{l.locked ? "🔒" : "🔓"}</button>
-                        <button type="button" aria-label="Monter" disabled={index === doc.layers.length - 1} onClick={() => moveLayer(l.id, "up")} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 disabled:opacity-20">↑</button>
-                        <button type="button" aria-label="Descendre" disabled={index === 0} onClick={() => moveLayer(l.id, "down")} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 disabled:opacity-20">↓</button>
+                  {sel.kind === "path" && (
+                    <Section title="Points du tracé">
+                      <button type="button" disabled={sel.locked} className={btn + ` w-full ${editLayer ? chipOn : ""}`}
+                        onClick={() => (editLayer ? exitEdit() : enterEditPath(sel.id))}>
+                        {editLayer ? "✓ Terminer la modification" : "✒ Modifier les points"}
+                      </button>
+                      {editLayer && editAbs && (
+                        <>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button type="button" className={btn + ` ${addMode ? chipOn : ""}`} onClick={() => setAddMode((v) => !v)}>＋ Ajouter un point</button>
+                            <button type="button" className={btn + " !text-red-300"} disabled={validSel == null}
+                              onClick={() => validSel != null && deletePoint(editLayer.id, validSel)}>Supprimer le point</button>
+                          </div>
+                          {validSel != null ? (
+                            <>
+                              <p className="text-[11px] text-white/60">Point {validSel + 1} sur {editAbs.length}</p>
+                              <Seg<NodeKind> value={nodeKind(editAbs[validSel]!)} onChange={(v) => setNodeKind(editLayer.id, validSel, v)}
+                                options={[{ label: "Lisse", value: "smooth" }, { label: "Angle", value: "corner" }, { label: "Libre", value: "free" }]} />
+                            </>
+                          ) : (
+                            <p className="text-[11px] leading-4 text-white/45">Touche un point du tracé pour le sélectionner.</p>
+                          )}
+                          <div className="grid grid-cols-2 gap-2">
+                            <button type="button" className={btn} onClick={() => setAllNodes(editLayer.id, "smooth")}>Tout lisser</button>
+                            <button type="button" className={btn} onClick={() => setAllNodes(editLayer.id, "corner")}>Tout en angles</button>
+                          </div>
+                          <p className="text-[11px] leading-4 text-white/45">Glisse un point pour le déplacer, tire les poignées blanches pour courber (Alt = poignées indépendantes). « Lisse » = courbe douce, « Angle » = pointe, « Libre » = chaque poignée bouge seule. Double-clic sur un point = lisse ⇄ angle. Flèches = déplacer le point, Suppr = l'effacer.</p>
+                        </>
+                      )}
+                      {!editLayer && <p className="text-[11px] leading-4 text-white/45">Double-clique le tracé (ou touche « Modifier les points ») pour déplacer ses points et régler ses courbes.</p>}
+                    </Section>
+                  )}
+
+                  {sel.kind !== "image" && (
+                    <Section title={sel.kind === "path" ? "Couleur du trait" : "Couleur"}>
+                      <ColorField value={sel.color} onChange={(v) => updateLayer(sel.id, { color: v })} />
+                    </Section>
+                  )}
+
+                  {sel.kind === "path" && (
+                    <Section title="Style du tracé">
+                      <Range label="Épaisseur du trait" value={sel.sw ?? 8} min={1} max={80} unit=" px" onChange={(v) => updateLayer(sel.id, { sw: v })} />
+                      <Seg<Dash> value={sel.dash ?? "solid"} onChange={(v) => updateLayer(sel.id, { dash: v })}
+                        options={[{ label: "Plein", value: "solid" }, { label: "Tirets", value: "dashed" }, { label: "Pointillés", value: "dotted" }]} />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="mb-1.5 text-[11px] text-white/60">Extrémités</p>
+                          <Seg<"round" | "butt"> value={sel.cap ?? "round"} onChange={(v) => updateLayer(sel.id, { cap: v })}
+                            options={[{ label: "Rondes", value: "round" }, { label: "Plates", value: "butt" }]} />
+                        </div>
+                        <div>
+                          <p className="mb-1.5 text-[11px] text-white/60">Angles</p>
+                          <Seg<"round" | "miter"> value={sel.join ?? "round"} onChange={(v) => updateLayer(sel.id, { join: v })}
+                            options={[{ label: "Ronds", value: "round" }, { label: "Pointus", value: "miter" }]} />
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-                <p className="text-[11px] leading-4 text-white/45">Glisse une ligne pour changer l'ordre. L'élément tout en haut de la liste est devant les autres.</p>
-              </Section>
-            )}
-          </div>
-        </aside>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Toggle label="Remplissage" on={!!sel.fill && sel.fill !== "none"} onChange={(v) => updateLayer(sel.id, { fill: v ? sel.color : "none" })} />
+                        <Toggle label="Tracé fermé" on={!!sel.closed}
+                          onChange={(v) => {
+                            if (v && (sel.pts?.length ?? 0) < 3) { notify("Il faut au moins 3 points pour fermer un tracé.", "error"); return; }
+                            updateLayer(sel.id, { closed: v });
+                          }} />
+                      </div>
+                      {sel.fill && sel.fill !== "none" && <ColorField value={sel.fill} onChange={(v) => updateLayer(sel.id, { fill: v })} />}
+                    </Section>
+                  )}
+
+                  {sel.kind === "image" && (
+                    <Section title="Recadrage de la photo">
+                      <button type="button" disabled={sel.locked}
+                        className={btn + ` w-full ${cropLayer ? "!border-[#FF6B00] !text-white" : ""}`}
+                        onClick={() => (cropLayer ? setCropId(null) : startCropMode(sel.id))}>
+                        {cropLayer ? "✓ Terminer le recadrage" : "✂ Recadrer la photo"}
+                      </button>
+                      {hasCrop(sel) && (
+                        <Range label="Zoom de la photo" value={zoomOf(sel)} min={50} max={400} unit="%" onChange={(v) => setCropZoom(sel.id, v)} />
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" className={btn} onClick={() => setImageFit(sel.id, "cover")}>Remplir le cadre</button>
+                        <button type="button" className={btn} onClick={() => setImageFit(sel.id, "contain")}>Image entière</button>
+                      </div>
+                      <p className="text-[11px] leading-4 text-white/45">En recadrage : glisse la photo pour la déplacer, utilise la molette pour zoomer et tire les poignées du cadre pour rogner.</p>
+                    </Section>
+                  )}
+
+                  <Section title="Taille et transparence">
+                    <Range label="Transparence" value={100 - sel.opacity} min={0} max={95} unit="%" onChange={(v) => updateLayer(sel.id, { opacity: 100 - v })} />
+                    {sel.kind === "image" && hasCrop(sel) ? (
+                      <Range label="Taille de la photo" value={sel.w} min={3} max={Math.max(3.1, Math.min(100, (sel.w * 100) / sel.h))} step={0.5} unit="%" onChange={(v) => resizeProportional(sel.id, v)} />
+                    ) : (
+                      <>
+                        <Range label={sel.kind === "text" ? "Largeur du cadre de texte" : "Largeur"} value={sel.w} min={3} max={100} unit="%" onChange={(v) => updateLayer(sel.id, { w: v, x: Math.min(sel.x, 100 - v) })} />
+                        {sel.kind !== "text" && (
+                          <Range label="Hauteur" value={sel.h} min={0.3} max={100} step={0.1} unit="%" onChange={(v) => updateLayer(sel.id, { h: v, y: Math.min(sel.y, 100 - v) })} />
+                        )}
+                      </>
+                    )}
+                    {sel.kind === "shape" && sel.shape === "rectangle" && (
+                      <button type="button" className={btn + " w-full"} onClick={() => updateLayer(sel.id, { x: 0, y: 0, w: 100, h: 100 })}>Couvrir toute l'affiche</button>
+                    )}
+                  </Section>
+                  <Section title="Rotation">
+                    <Range label="Angle" value={sel.rotation ?? 0} min={-180} max={180} step={1} unit="°"
+                      onChange={(v) => updateLayer(sel.id, { rotation: v })} />
+                    <div className="grid grid-cols-3 gap-2">
+                      <button type="button" className={btn} disabled={sel.locked}
+                        onClick={() => updateLayer(sel.id, { rotation: normAngle((sel.rotation ?? 0) - 90) }, `rot:${sel.id}`)}>↺ −90°</button>
+                      <button type="button" className={btn} disabled={sel.locked}
+                        onClick={() => updateLayer(sel.id, { rotation: normAngle((sel.rotation ?? 0) + 90) }, `rot:${sel.id}`)}>↻ +90°</button>
+                      <button type="button" className={btn} disabled={sel.locked || !sel.rotation}
+                        onClick={() => updateLayer(sel.id, { rotation: 0 }, `rot:${sel.id}`)}>Remettre 0°</button>
+                    </div>
+                  </Section>
+                  <Section title="Position">
+                    <div className="grid grid-cols-3 gap-2">
+                      {([["⇤ Gauche", "l"], ["↔ Centre", "c"], ["⇥ Droite", "r"], ["⤒ Haut", "t"], ["↕ Milieu", "m"], ["⤓ Bas", "b"]] as const).map(([label, a]) => (
+                        <button key={a} type="button" className={btn + " !px-1"} onClick={() => alignLayer(sel.id, a)}>{label}</button>
+                      ))}
+                    </div>
+                  </Section>
+
+                  <Section title="Élément">
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" className={btn} onClick={() => updateLayer(sel.id, { locked: !sel.locked })}>{sel.locked ? "🔓 Déverrouiller" : "🔒 Verrouiller"}</button>
+                      <button type="button" className={btn} onClick={() => duplicateLayer(sel.id)}>Dupliquer</button>
+                      <button type="button" className={btn} onClick={() => moveLayer(sel.id, "back")}>Tout au fond</button>
+                      <button type="button" className={btn} onClick={() => moveLayer(sel.id, "front")}>Tout devant</button>
+                    </div>
+                    <button type="button" onClick={() => removeLayer(sel.id)}
+                      className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20 max-lg:py-3">Supprimer cet élément</button>
+                  </Section>
+                </>
+              )}
+
+              {/* ───── FOND ───── */}
+              {tab === "background" && (
+                <>
+                  <Section title="Couleurs prêtes à l'emploi">
+                    <div className="grid grid-cols-3 gap-2">
+                      {BG_PRESETS.map((p) => (
+                        <button key={p.name} type="button" onClick={() => updateBg({ c1: p.c1, c2: p.c2, angle: p.angle })}
+                          className="overflow-hidden rounded-lg border border-white/15 text-[11px] transition hover:border-[#FF6B00]">
+                          <span className="block h-12" style={{ background: bgCss({ ...doc.bg, c1: p.c1, c2: p.c2, angle: p.angle }) }} />
+                          <span className="block bg-[#121212] py-1.5 text-white/75">{p.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </Section>
+                  <Section title="Couleurs personnalisées">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><p className="mb-1.5 text-[11px] text-white/60">Couleur 1</p><input type="color" aria-label="Couleur 1" value={doc.bg.c1} onChange={(e) => updateBg({ c1: e.target.value })} className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-[#121212] p-1" /></div>
+                      <div><p className="mb-1.5 text-[11px] text-white/60">Couleur 2</p><input type="color" aria-label="Couleur 2" value={doc.bg.c2} onChange={(e) => updateBg({ c2: e.target.value })} className="h-10 w-full cursor-pointer rounded-lg border border-white/10 bg-[#121212] p-1" /></div>
+                    </div>
+                    <Range label="Angle du dégradé" value={doc.bg.angle} min={0} max={360} unit="°" onChange={(v) => updateBg({ angle: v })} />
+                    <button type="button" className={btn + " w-full"} onClick={() => updateBg({ c2: doc.bg.c1 })}>Couleur unie (sans dégradé)</button>
+                  </Section>
+                  <Section title="Photo de fond">
+                    <button type="button" onClick={() => bgInputRef.current?.click()} disabled={busy} className={btn + " w-full"}>
+                      {doc.bg.image ? "Changer la photo" : "+ Ajouter une photo de fond"}
+                    </button>
+                    {doc.bg.image && (
+                      <>
+                        <div className="relative overflow-hidden rounded-lg border border-white/10">
+                          <img src={doc.bg.image} alt="" className="h-32 w-full object-cover" />
+                        </div>
+                        <Range label="Voile sombre (pour lire le texte)" value={doc.bg.overlay} min={0} max={100} unit="%" onChange={(v) => updateBg({ overlay: v })} />
+                        <Range label="Zoom de la photo" value={doc.bg.zoom ?? 100} min={100} max={300} unit="%" onChange={(v) => updateBg({ zoom: v })} />
+                        <Range label="Position horizontale" value={doc.bg.px ?? 50} min={0} max={100} unit="%" onChange={(v) => updateBg({ px: v })} />
+                        <Range label="Position verticale" value={doc.bg.py ?? 50} min={0} max={100} unit="%" onChange={(v) => updateBg({ py: v })} />
+                        <button type="button" className={btn + " w-full"} onClick={() => updateBg({ zoom: 100, px: 50, py: 50 }, "bg:reset")}>Réinitialiser le cadrage</button>
+                        <button type="button" onClick={() => updateBg({ image: null })}
+                          className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-semibold text-red-300 hover:bg-red-500/20 max-lg:py-3">Retirer la photo</button>
+                      </>
+                    )}
+                  </Section>
+                </>
+              )}
+
+              {/* ───── CALQUES ───── */}
+              {tab === "layers" && (
+                <Section title={`Calques (${doc.layers.length}) · du premier plan au fond`}>
+                  {doc.layers.length === 0 && <p className="text-xs text-white/45">Rien sur l'affiche pour l'instant. Ajoute un texte, une photo ou une forme.</p>}
+                  <div className="space-y-1.5">
+                    {[...doc.layers].reverse().map((l) => {
+                      const index = doc.layers.findIndex((x) => x.id === l.id);
+                      return (
+                        <div key={l.id} draggable={!isTouch}
+                          onDragStart={() => setDragLayerId(l.id)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={() => { if (dragLayerId) reorderLayer(dragLayerId, l.id); setDragLayerId(null); }}
+                          className={`flex items-center gap-1.5 rounded-lg border p-1.5 ${selIds.includes(l.id) ? "border-[#FF6B00] bg-[#FF6B00]/10" : "border-white/10 bg-[#121212]"} ${l.visible ? "" : "opacity-50"}`}>
+                          <span className="w-4 cursor-grab text-center text-white/30 max-lg:hidden" aria-hidden="true">⋮⋮</span>
+                          <button type="button" onClick={(e) => (e.shiftKey || e.ctrlKey || e.metaKey ? toggleSelect(l.id, false) : select(l.id, false))} className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-xs max-lg:py-2">
+                            <span className="w-4 shrink-0 text-center text-white/50">{layerIcon(l)}</span>
+                            <span className="truncate" dir="auto">{layerLabel(l)}</span>
+                            {l.groupId && <span className="shrink-0 text-[10px] text-[#FF6B00]">⧉ groupe</span>}
+                          </button>
+                          <button type="button" title={l.visible ? "Masquer" : "Afficher"} onClick={() => updateLayer(l.id, { visible: !l.visible })} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white max-lg:px-2.5 max-lg:py-2.5">{l.visible ? "👁" : "—"}</button>
+                          <button type="button" title={l.locked ? "Déverrouiller" : "Verrouiller"} onClick={() => updateLayer(l.id, { locked: !l.locked })} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 hover:text-white max-lg:px-2.5 max-lg:py-2.5">{l.locked ? "🔒" : "🔓"}</button>
+                          <button type="button" aria-label="Monter" disabled={index === doc.layers.length - 1} onClick={() => moveLayer(l.id, "up")} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 disabled:opacity-20 max-lg:px-2.5 max-lg:py-2.5">↑</button>
+                          <button type="button" aria-label="Descendre" disabled={index === 0} onClick={() => moveLayer(l.id, "down")} className="rounded px-1.5 py-1 text-xs text-white/60 hover:bg-white/10 disabled:opacity-20 max-lg:px-2.5 max-lg:py-2.5">↓</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] leading-4 text-white/45">{isTouch ? "Utilise les flèches ↑ ↓ pour changer l'ordre." : "Glisse une ligne pour changer l'ordre."} L'élément tout en haut de la liste est devant les autres.</p>
+                </Section>
+              )}
+            </div>
+          </aside>
+        )}
       </div>
+
+      {/* Onglets en bas de l'écran (mobile) */}
+      {isMobile && tabBar}
     </div>
   );
 }
