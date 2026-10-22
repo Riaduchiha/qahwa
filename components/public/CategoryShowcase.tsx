@@ -92,7 +92,7 @@ export default function CategoryShowcase({
     <section
       id={category.slug}
       aria-label={category.name}
-      className="relative overflow-hidden bg-qahwa-noir py-14 sm:py-20"
+      className="relative overflow-hidden bg-qahwa-noir py-8 sm:py-20"
     >
       <style>{`
         @keyframes qahwa-product-in {
@@ -156,7 +156,7 @@ export default function CategoryShowcase({
           {category.name}
         </h2>
 
-        <div className="mt-8 grid grid-cols-1 items-start gap-8 lg:mt-12 lg:grid-cols-2 lg:gap-12">
+        <div className="mt-4 grid grid-cols-1 items-start gap-5 lg:mt-12 lg:grid-cols-2 lg:gap-12">
           {/* SCÈNE : produit */}
           <div
             className="relative mx-auto aspect-square w-full min-w-0 max-w-[520px] touch-pan-y select-none overflow-hidden rounded-[2rem] border border-qahwa-blanc/[0.07] bg-qahwa-noir/40 backdrop-blur-sm"
@@ -165,7 +165,7 @@ export default function CategoryShowcase({
           >
             <div className="pointer-events-none absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-qahwa-orange/15 blur-[90px]" />
 
-            <div key={current.id} className="qahwa-product-in absolute inset-6 sm:inset-10">
+            <div key={current.id} className="qahwa-product-in absolute inset-3 sm:inset-10">
               {current.image_url ? (
                 <div className="qahwa-product-float relative h-full w-full">
                   <Image
@@ -186,47 +186,51 @@ export default function CategoryShowcase({
               )}
             </div>
 
-            {count > 1 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => goTo(index - 1)}
-                  aria-label="Produit précédent"
-                  className="absolute left-3 top-1/2 z-20 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-qahwa-blanc/20 bg-qahwa-noir/80 text-xl text-qahwa-blanc backdrop-blur transition hover:border-qahwa-orange hover:bg-qahwa-orange hover:text-qahwa-noir focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qahwa-orange active:scale-90"
-                >
-                  ←
-                </button>
-                <button
-                  type="button"
-                  onClick={() => goTo(index + 1)}
-                  aria-label="Produit suivant"
-                  className="absolute right-3 top-1/2 z-20 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-qahwa-blanc/20 bg-qahwa-noir/80 text-xl text-qahwa-blanc backdrop-blur transition hover:border-qahwa-orange hover:bg-qahwa-orange hover:text-qahwa-noir focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qahwa-orange active:scale-90"
-                >
-                  →
-                </button>
-              </>
-            )}
+           {count > 1 && (
+  <>
+    <button
+      type="button"
+      onClick={() => goTo(index - 1)}
+      aria-label="Produit précédent"
+      className="absolute left-2 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-qahwa-orange/50 bg-qahwa-noir/70 text-qahwa-orange backdrop-blur transition active:scale-90 active:bg-qahwa-orange active:text-qahwa-noir focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qahwa-orange sm:left-3 sm:h-12 sm:w-12 [@media(hover:hover)]:hover:bg-qahwa-orange [@media(hover:hover)]:hover:text-qahwa-noir"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden>
+        <path d="M15 6l-6 6 6 6" />
+      </svg>
+    </button>
+    <button
+      type="button"
+      onClick={() => goTo(index + 1)}
+      aria-label="Produit suivant"
+      className="absolute right-2 top-1/2 z-20 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-qahwa-orange/50 bg-qahwa-noir/70 text-qahwa-orange backdrop-blur transition active:scale-90 active:bg-qahwa-orange active:text-qahwa-noir focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-qahwa-orange sm:right-3 sm:h-12 sm:w-12 [@media(hover:hover)]:hover:bg-qahwa-orange [@media(hover:hover)]:hover:text-qahwa-noir"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden>
+        <path d="M9 6l6 6-6 6" />
+      </svg>
+    </button>
+  </>
+)}
           </div>
 
           {/* INFOS */}
           <div className="mx-auto w-full min-w-0 max-w-[520px] lg:mx-0">
             {/* Hauteurs réservées : la page ne bouge plus d'un produit à l'autre */}
             <div key={current.id} className="qahwa-product-in">
-              <h3 className="line-clamp-2 min-h-[1.9em] font-display text-3xl uppercase leading-[0.95] tracking-[-0.025em] text-qahwa-blanc sm:text-5xl">
+              <h3 className="line-clamp-2 min-h-[1.9em] font-display text-2xl uppercase leading-[0.95] tracking-[-0.025em] text-qahwa-blanc sm:text-5xl">
                 {current.name}
               </h3>
 
-              <p className="mt-4 line-clamp-3 min-h-[4.25rem] max-w-md text-sm leading-relaxed text-qahwa-blanc/70 sm:min-h-[4.9rem] sm:text-base">
+              <p className="mt-2 line-clamp-3 min-h-[2.9rem] max-w-md text-sm leading-relaxed text-qahwa-blanc/70 sm:mt-4 sm:min-h-[4.9rem] sm:text-base">
                 {current.description}
               </p>
 
-              <p className="mt-6 font-display text-3xl text-qahwa-orange sm:text-4xl">
+              <p className="mt-3 font-display text-2xl text-qahwa-orange sm:mt-6 sm:text-4xl">
                 {formatPrice(current.price)}
               </p>
             </div>
 
             {/* Quantité + Ajouter */}
-            <div className="mt-6 flex items-center gap-3">
+            <div className="mt-4 flex items-center gap-3 sm:mt-6">
               <div className="flex h-12 shrink-0 items-center rounded-full border border-qahwa-blanc/15 bg-qahwa-noir/50 px-1.5 backdrop-blur-sm">
                 <button
                   type="button"
@@ -286,7 +290,7 @@ export default function CategoryShowcase({
               <ul
                 ref={thumbsRef}
                 aria-label={`Produits de la catégorie ${category.name}`}
-                className="relative mt-8 flex gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                className="relative mt-4 flex gap-2 overflow-x-auto pb-2 sm:mt-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
                 {products.map((product, i) => (
                   <li key={product.id} className="shrink-0">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 /* ------------------------------------------------------------------ */
@@ -36,24 +36,25 @@ type FormState = {
 };
 
 type SortKey = "date_desc" | "date_asc" | "amount_desc" | "amount_asc";
+type ChartView = "months" | "days";
 
 /* ------------------------------------------------------------------ */
 /*  Constantes                                                         */
 /* ------------------------------------------------------------------ */
 
 const CATEGORIES = [
-  { value: "loyer", label: "Loyer" },
-  { value: "electricite", label: "Électricité" },
-  { value: "eau", label: "Eau" },
-  { value: "internet", label: "Internet" },
-  { value: "salaires", label: "Salaires" },
-  { value: "entretien", label: "Entretien" },
-  { value: "transport", label: "Transport" },
-  { value: "materiel", label: "Matériel" },
-  { value: "marketing", label: "Marketing" },
-  { value: "impots", label: "Impôts et taxes" },
-  { value: "frais_bancaires", label: "Frais bancaires" },
-  { value: "autre", label: "Autre dépense" },
+  { value: "loyer", label: "Loyer", color: "#FF6B00" },
+  { value: "electricite", label: "Électricité", color: "#F59E0B" },
+  { value: "eau", label: "Eau", color: "#38BDF8" },
+  { value: "internet", label: "Internet", color: "#818CF8" },
+  { value: "salaires", label: "Salaires", color: "#34D399" },
+  { value: "entretien", label: "Entretien", color: "#A3A3A3" },
+  { value: "transport", label: "Transport", color: "#F472B6" },
+  { value: "materiel", label: "Matériel", color: "#FACC15" },
+  { value: "marketing", label: "Marketing", color: "#C084FC" },
+  { value: "impots", label: "Impôts et taxes", color: "#F87171" },
+  { value: "frais_bancaires", label: "Frais bancaires", color: "#94A3B8" },
+  { value: "autre", label: "Autre dépense", color: "#64748B" },
 ];
 
 const PAYMENT_METHODS = [
@@ -96,6 +97,13 @@ function formatMoney(value: number) {
   );
 }
 
+function formatCompact(value: number) {
+  return new Intl.NumberFormat("fr-FR", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 function formatDate(value: string) {
   if (!value) return "—";
 
@@ -135,6 +143,11 @@ function parseMonth(month: string): [number, number] {
   return [Number(parts[0]), Number(parts[1])];
 }
 
+function daysInMonth(month: string) {
+  const [year, m] = parseMonth(month);
+  return new Date(year, m, 0).getDate();
+}
+
 function shiftMonth(month: string, delta: number) {
   const [year, m] = parseMonth(month);
   const date = new Date(year, m - 1 + delta, 1);
@@ -159,6 +172,10 @@ function shortMonthLabel(month: string) {
 
 function categoryLabel(value: string) {
   return CATEGORIES.find((item) => item.value === value)?.label ?? value;
+}
+
+function categoryColor(value: string) {
+  return CATEGORIES.find((item) => item.value === value)?.color ?? "#64748B";
 }
 
 function paymentLabel(value: string) {
@@ -213,9 +230,13 @@ function Modal({
   children: React.ReactNode;
   size?: "sm" | "lg";
 }) {
+  // On garde la dernière version de onClose sans relancer l'effet à chaque rendu
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     }
 
     const previousOverflow = document.body.style.overflow;
@@ -226,7 +247,7 @@ function Modal({
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div
@@ -293,6 +314,18 @@ function StatCard({
   );
 }
 
+function CategoryBadge({ value }: { value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-2.5 py-1 text-xs text-white/70">
+      <span
+        className="h-2 w-2 rounded-full"
+        style={{ backgroundColor: categoryColor(value) }}
+      />
+      {categoryLabel(value)}
+    </span>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
@@ -303,6 +336,7 @@ export default function QahwaComptabilitePage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -317,15 +351,17 @@ export default function QahwaComptabilitePage() {
   const [onlyWithoutReceipt, setOnlyWithoutReceipt] = useState(false);
   const [sort, setSort] = useState<SortKey>("date_desc");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [chartView, setChartView] = useState<ChartView>("months");
 
   // Formulaire (ajout / modification)
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
 
-  // Suppression
+  // Suppression (avec possibilité d'annuler)
   const [toDelete, setToDelete] = useState<Expense | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [undoItem, setUndoItem] = useState<Expense | null>(null);
 
   // Budget mensuel (enregistré sur cet appareil)
   const [budget, setBudget] = useState(0);
@@ -338,6 +374,7 @@ export default function QahwaComptabilitePage() {
     async (showSpinner = true) => {
       if (showSpinner) setLoading(true);
       setError("");
+      setLoadFailed(false);
 
       try {
         const [expensesResult, suppliersResult] = await Promise.all([
@@ -365,6 +402,7 @@ export default function QahwaComptabilitePage() {
         );
       } catch (err) {
         console.error(err);
+        setLoadFailed(true);
         setError(
           "Impossible de charger les dépenses. Vérifie la connexion à Supabase."
         );
@@ -395,6 +433,13 @@ export default function QahwaComptabilitePage() {
     const timer = window.setTimeout(() => setSuccess(""), 4000);
     return () => window.clearTimeout(timer);
   }, [success]);
+
+  // Le bouton « Annuler » de suppression reste visible 8 secondes
+  useEffect(() => {
+    if (!undoItem) return;
+    const timer = window.setTimeout(() => setUndoItem(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [undoItem]);
 
   // On revient à la première page quand les filtres changent
   useEffect(() => {
@@ -442,13 +487,26 @@ export default function QahwaComptabilitePage() {
 
   const headlineTotal = showAllMonths ? allTotal : monthTotal;
 
+  // Dépenses de la période choisie (sans les autres filtres)
+  const periodExpenses = useMemo(
+    () =>
+      showAllMonths
+        ? expenses
+        : expenses.filter((expense) =>
+            expense.expense_date?.startsWith(selectedMonth)
+          ),
+    [expenses, showAllMonths, selectedMonth]
+  );
+
+  const missingReceipts = useMemo(
+    () => periodExpenses.filter((expense) => !expense.receipt_url).length,
+    [periodExpenses]
+  );
+
   const filteredExpenses = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    const list = expenses.filter((expense) => {
-      if (!showAllMonths && !expense.expense_date?.startsWith(selectedMonth)) {
-        return false;
-      }
+    const list = periodExpenses.filter((expense) => {
       if (filterCategory && expense.category !== filterCategory) return false;
       if (filterPayment && expense.payment_method !== filterPayment) {
         return false;
@@ -488,9 +546,7 @@ export default function QahwaComptabilitePage() {
 
     return sorted;
   }, [
-    expenses,
-    showAllMonths,
-    selectedMonth,
+    periodExpenses,
     filterCategory,
     filterPayment,
     filterSupplier,
@@ -508,12 +564,20 @@ export default function QahwaComptabilitePage() {
   // Moyenne par jour (mois sélectionné)
   const dailyAverage = useMemo(() => {
     if (showAllMonths) return null;
-    const [year, m] = parseMonth(selectedMonth);
     const days =
       selectedMonth === currentMonth()
         ? new Date().getDate()
-        : new Date(year, m, 0).getDate();
+        : daysInMonth(selectedMonth);
     return days > 0 ? monthTotal / days : 0;
+  }, [showAllMonths, selectedMonth, monthTotal]);
+
+  // Projection de fin de mois (uniquement pour le mois en cours)
+  const projection = useMemo(() => {
+    if (showAllMonths || selectedMonth !== currentMonth()) return null;
+    const elapsed = Math.max(new Date().getDate(), 1);
+    const total = daysInMonth(selectedMonth);
+    const perDay = monthTotal / elapsed;
+    return { value: perDay * total, perDay };
   }, [showAllMonths, selectedMonth, monthTotal]);
 
   // Répartition par catégorie (sur les dépenses filtrées)
@@ -539,6 +603,18 @@ export default function QahwaComptabilitePage() {
 
   const topCategory = breakdown[0];
 
+  // Anneau de répartition
+  const donutBackground = useMemo(() => {
+    if (breakdown.length === 0) return "";
+    let acc = 0;
+    const stops = breakdown.map((item) => {
+      const start = acc;
+      acc += item.percent;
+      return `${categoryColor(item.value)} ${start}% ${acc}%`;
+    });
+    return `conic-gradient(${stops.join(", ")})`;
+  }, [breakdown]);
+
   // Tendance sur 6 mois
   const trend = useMemo(() => {
     const base = showAllMonths ? currentMonth() : selectedMonth;
@@ -553,12 +629,74 @@ export default function QahwaComptabilitePage() {
     return { values, max };
   }, [monthTotals, selectedMonth, showAllMonths]);
 
+  // Dépenses jour par jour (mois sélectionné, selon les filtres)
+  const dailySeries = useMemo(() => {
+    if (showAllMonths) return null;
+    const days = daysInMonth(selectedMonth);
+    const totals: number[] = Array.from({ length: days }, () => 0);
+    filteredExpenses.forEach((expense) => {
+      const day = Number(expense.expense_date?.slice(8, 10));
+      if (day >= 1 && day <= days) {
+        totals[day - 1] = (totals[day - 1] ?? 0) + Number(expense.amount || 0);
+      }
+    });
+    return { totals, max: Math.max(...totals, 1) };
+  }, [showAllMonths, selectedMonth, filteredExpenses]);
+
+  const effectiveChartView: ChartView =
+    chartView === "days" && dailySeries ? "days" : "months";
+
   // Budget
   const budgetPercent =
     budget > 0 ? Math.min((monthTotal / budget) * 100, 100) : 0;
   const budgetRatio = budget > 0 ? monthTotal / budget : 0;
   const budgetColor =
     budgetRatio >= 1 ? "#EF4444" : budgetRatio >= 0.8 ? "#F59E0B" : ACCENT;
+  const projectedOverBudget =
+    budget > 0 && projection && budgetRatio < 1 && projection.value > budget
+      ? projection.value - budget
+      : 0;
+
+  // Dépenses fréquentes (proposées à l'ajout pour gagner du temps)
+  const frequentExpenses = useMemo(() => {
+    const map = new Map<string, { count: number; latest: Expense }>();
+    expenses.forEach((expense) => {
+      const key = expense.title.trim().toLowerCase();
+      if (!key) return;
+      const current = map.get(key);
+      if (!current) {
+        map.set(key, { count: 1, latest: expense });
+      } else {
+        current.count += 1;
+        if ((expense.expense_date ?? "") > (current.latest.expense_date ?? "")) {
+          current.latest = expense;
+        }
+      }
+    });
+
+    return Array.from(map.values())
+      .filter((item) => item.count >= 2)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6)
+      .map((item) => item.latest);
+  }, [expenses]);
+
+  // Alerte doublon dans le formulaire
+  const possibleDuplicate = useMemo(() => {
+    if (!modalOpen || editingId) return null;
+    const amount = Number(form.amount.replace(",", "."));
+    const title = form.title.trim().toLowerCase();
+    if (!title || !Number.isFinite(amount) || amount <= 0) return null;
+
+    return (
+      expenses.find(
+        (expense) =>
+          expense.expense_date === form.expenseDate &&
+          Number(expense.amount) === amount &&
+          expense.title.trim().toLowerCase() === title
+      ) ?? null
+    );
+  }, [modalOpen, editingId, form.amount, form.title, form.expenseDate, expenses]);
 
   // Liste paginée et groupée par jour
   const visibleExpenses = filteredExpenses.slice(0, visibleCount);
@@ -664,10 +802,26 @@ export default function QahwaComptabilitePage() {
     setModalOpen(true);
   }
 
+  function applyTemplate(expense: Expense) {
+    setForm({
+      ...emptyForm(),
+      title: expense.title,
+      category: expense.category,
+      amount: String(expense.amount),
+      paymentMethod: expense.payment_method,
+      supplierId: expense.supplier_id ?? "",
+      notes: expense.notes ?? "",
+    });
+  }
+
   const closeModal = useCallback(() => {
     setModalOpen(false);
     setEditingId(null);
   }, []);
+
+  const closeDelete = useCallback(() => {
+    if (!deleting) setToDelete(null);
+  }, [deleting]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -738,7 +892,8 @@ export default function QahwaComptabilitePage() {
   }
 
   async function confirmDelete() {
-    if (!toDelete) return;
+    const target = toDelete;
+    if (!target) return;
 
     setDeleting(true);
     setError("");
@@ -747,7 +902,7 @@ export default function QahwaComptabilitePage() {
     const { error: deleteError } = await supabase
       .from("expenses")
       .delete()
-      .eq("id", toDelete.id);
+      .eq("id", target.id);
 
     setDeleting(false);
 
@@ -758,11 +913,38 @@ export default function QahwaComptabilitePage() {
       return;
     }
 
-    setExpenses((previous) =>
-      previous.filter((item) => item.id !== toDelete.id)
-    );
+    setExpenses((previous) => previous.filter((item) => item.id !== target.id));
     setToDelete(null);
-    setSuccess("Dépense supprimée.");
+    setUndoItem(target);
+  }
+
+  async function undoDelete() {
+    const item = undoItem;
+    if (!item) return;
+
+    setUndoItem(null);
+    setError("");
+
+    const { error: restoreError } = await supabase.from("expenses").insert({
+      id: item.id,
+      title: item.title,
+      category: item.category,
+      amount: item.amount,
+      expense_date: item.expense_date,
+      payment_method: item.payment_method,
+      supplier_id: item.supplier_id,
+      receipt_url: item.receipt_url,
+      notes: item.notes,
+    });
+
+    if (restoreError) {
+      console.error(restoreError);
+      setError("Impossible de restaurer la dépense.");
+      return;
+    }
+
+    setSuccess("Dépense restaurée.");
+    await loadData(false);
   }
 
   function saveBudget() {
@@ -794,7 +976,7 @@ export default function QahwaComptabilitePage() {
       "Lien du reçu",
     ];
 
-    const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
 
     const rows = filteredExpenses.map((expense) => [
       expense.expense_date ?? "",
@@ -810,7 +992,7 @@ export default function QahwaComptabilitePage() {
     const csv =
       "\uFEFF" +
       [header, ...rows]
-        .map((row) => row.map((cell) => escape(String(cell))).join(";"))
+        .map((row) => row.map((cell) => csvCell(String(cell))).join(";"))
         .join("\n");
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -876,14 +1058,25 @@ export default function QahwaComptabilitePage() {
           className="flex items-start justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300"
         >
           <span>{error}</span>
-          <button
-            type="button"
-            onClick={() => setError("")}
-            aria-label="Masquer le message"
-            className="text-red-300/70 hover:text-red-200"
-          >
-            ✕
-          </button>
+          <div className="flex shrink-0 items-center gap-3">
+            {loadFailed && (
+              <button
+                type="button"
+                onClick={() => void loadData()}
+                className="font-semibold underline underline-offset-4 hover:text-red-100"
+              >
+                Réessayer
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setError("")}
+              aria-label="Masquer le message"
+              className="text-red-300/70 hover:text-red-200"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       )}
 
@@ -979,11 +1172,19 @@ export default function QahwaComptabilitePage() {
           }
         />
 
-        <StatCard
-          label="Total selon les filtres"
-          value={formatMoney(totalFiltered)}
-          footer={`${filteredExpenses.length} dépense(s) affichée(s)`}
-        />
+        {projection ? (
+          <StatCard
+            label="Projection fin de mois"
+            value={formatMoney(projection.value)}
+            footer={`Au rythme actuel : ${formatMoney(projection.perDay)} par jour`}
+          />
+        ) : (
+          <StatCard
+            label="Total selon les filtres"
+            value={formatMoney(totalFiltered)}
+            footer={`${filteredExpenses.length} dépense(s) affichée(s)`}
+          />
+        )}
 
         <StatCard
           label={showAllMonths ? "Dépense moyenne" : "Moyenne par jour"}
@@ -1006,6 +1207,14 @@ export default function QahwaComptabilitePage() {
             topCategory
               ? `${formatMoney(topCategory.total)} · ${topCategory.percent.toFixed(0)} %`
               : "Aucune dépense dans la sélection"
+          }
+          badge={
+            topCategory && (
+              <span
+                className="mt-1 h-3 w-3 rounded-full"
+                style={{ backgroundColor: categoryColor(topCategory.value) }}
+              />
+            )
           }
         />
       </section>
@@ -1031,6 +1240,9 @@ export default function QahwaComptabilitePage() {
                 inputMode="decimal"
                 value={budgetDraft}
                 onChange={(event) => setBudgetDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") saveBudget();
+                }}
                 placeholder="Ex. 150000"
                 autoFocus
               />
@@ -1071,10 +1283,7 @@ export default function QahwaComptabilitePage() {
                 {formatMoney(monthTotal)} sur {formatMoney(budget)} ·{" "}
                 {monthLabel(selectedMonth).toLowerCase()}
               </span>
-              <span
-                className="font-semibold"
-                style={{ color: budgetColor }}
-              >
+              <span className="font-semibold" style={{ color: budgetColor }}>
                 {budgetRatio >= 1
                   ? `Dépassé de ${formatMoney(monthTotal - budget)}`
                   : `Reste ${formatMoney(budget - monthTotal)}`}
@@ -1092,6 +1301,13 @@ export default function QahwaComptabilitePage() {
             <p className="mt-2 text-xs text-white/40">
               {(budgetRatio * 100).toFixed(0)} % du budget utilisé
             </p>
+
+            {projectedOverBudget > 0 && (
+              <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                Au rythme actuel, tu dépasseras le budget d’environ{" "}
+                {formatMoney(projectedOverBudget)} d’ici la fin du mois.
+              </p>
+            )}
           </div>
         )}
       </section>
@@ -1099,57 +1315,138 @@ export default function QahwaComptabilitePage() {
       {/* Graphiques */}
       <section className="grid gap-4 lg:grid-cols-5">
         <div className={`${panelClass} p-5 lg:col-span-3`}>
-          <h2 className="text-base font-bold">Évolution sur 6 mois</h2>
-          <p className="mt-1 text-xs text-white/40">
-            Clique sur une barre pour afficher ce mois.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold">
+                {effectiveChartView === "days"
+                  ? `Jour par jour · ${monthLabel(selectedMonth).toLowerCase()}`
+                  : "Évolution sur 6 mois"}
+              </h2>
+              <p className="mt-1 text-xs text-white/40">
+                {effectiveChartView === "days"
+                  ? "Survole une barre pour voir le détail du jour."
+                  : "Clique sur une barre pour afficher ce mois."}
+              </p>
+            </div>
 
-          <div className="mt-6 flex h-44 items-end gap-2 sm:gap-4">
-            {trend.values.map((item) => {
-              const selected = !showAllMonths && item.month === selectedMonth;
-              const height = Math.max((item.total / trend.max) * 100, 3);
-
-              return (
-                <button
-                  key={item.month}
-                  type="button"
-                  onClick={() => {
-                    setShowAllMonths(false);
-                    setSelectedMonth(item.month);
-                  }}
-                  className="group flex h-full flex-1 flex-col items-center justify-end gap-2"
-                  title={`${monthLabel(item.month)} : ${formatMoney(item.total)}`}
-                >
-                  <span className="text-[10px] font-medium text-white/50 sm:text-xs">
-                    {item.total > 0
-                      ? new Intl.NumberFormat("fr-FR", {
-                          notation: "compact",
-                          maximumFractionDigits: 1,
-                        }).format(item.total)
-                      : ""}
-                  </span>
-                  <div className="flex w-full flex-1 items-end">
-                    <div
-                      className="w-full rounded-t-lg transition-all duration-500 group-hover:brightness-125"
-                      style={{
-                        height: `${height}%`,
-                        backgroundColor: selected
-                          ? ACCENT
-                          : "rgba(255,255,255,0.18)",
-                      }}
-                    />
-                  </div>
-                  <span
-                    className={`text-xs capitalize ${
-                      selected ? "font-bold text-white" : "text-white/45"
-                    }`}
-                  >
-                    {shortMonthLabel(item.month)}
-                  </span>
-                </button>
-              );
-            })}
+            <div className="flex rounded-lg border border-white/10 bg-[#111111] p-1 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setChartView("months")}
+                className={`rounded-md px-3 py-1.5 transition ${
+                  effectiveChartView === "months"
+                    ? "bg-white/15 text-white"
+                    : "text-white/50 hover:text-white"
+                }`}
+              >
+                6 mois
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartView("days")}
+                disabled={showAllMonths}
+                className={`rounded-md px-3 py-1.5 transition disabled:opacity-30 ${
+                  effectiveChartView === "days"
+                    ? "bg-white/15 text-white"
+                    : "text-white/50 hover:text-white"
+                }`}
+              >
+                Jours
+              </button>
+            </div>
           </div>
+
+          {effectiveChartView === "months" ? (
+            <div className="mt-6 flex h-44 items-end gap-2 sm:gap-4">
+              {trend.values.map((item) => {
+                const selected = !showAllMonths && item.month === selectedMonth;
+                const height = Math.max((item.total / trend.max) * 100, 3);
+
+                return (
+                  <button
+                    key={item.month}
+                    type="button"
+                    onClick={() => {
+                      setShowAllMonths(false);
+                      setSelectedMonth(item.month);
+                    }}
+                    className="group flex h-full flex-1 flex-col items-center justify-end gap-2"
+                    title={`${monthLabel(item.month)} : ${formatMoney(item.total)}`}
+                  >
+                    <span className="text-[10px] font-medium text-white/50 sm:text-xs">
+                      {item.total > 0 ? formatCompact(item.total) : ""}
+                    </span>
+                    <div className="flex w-full flex-1 items-end">
+                      <div
+                        className="w-full rounded-t-lg transition-all duration-500 group-hover:brightness-125"
+                        style={{
+                          height: `${height}%`,
+                          backgroundColor: selected
+                            ? ACCENT
+                            : "rgba(255,255,255,0.18)",
+                        }}
+                      />
+                    </div>
+                    <span
+                      className={`text-xs capitalize ${
+                        selected ? "font-bold text-white" : "text-white/45"
+                      }`}
+                    >
+                      {shortMonthLabel(item.month)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            dailySeries && (
+              <div className="mt-6">
+                <div className="flex h-44 items-end gap-[3px]">
+                  {dailySeries.totals.map((total, index) => {
+                    const day = index + 1;
+                    const isToday =
+                      selectedMonth === currentMonth() &&
+                      day === new Date().getDate();
+
+                    return (
+                      <div
+                        key={day}
+                        className="group flex h-full flex-1 items-end"
+                        title={`${day} ${monthLabel(selectedMonth).toLowerCase()} : ${formatMoney(total)}`}
+                      >
+                        <div
+                          className="w-full rounded-t-sm transition-all duration-500 group-hover:brightness-125"
+                          style={{
+                            height: `${total > 0 ? Math.max((total / dailySeries.max) * 100, 4) : 2}%`,
+                            backgroundColor:
+                              total > 0
+                                ? isToday
+                                  ? "#FFFFFF"
+                                  : ACCENT
+                                : "rgba(255,255,255,0.1)",
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex gap-[3px] text-[10px] text-white/40">
+                  {dailySeries.totals.map((_, index) => {
+                    const day = index + 1;
+                    const show =
+                      day === 1 ||
+                      day % 5 === 0 ||
+                      day === dailySeries.totals.length;
+                    return (
+                      <span key={day} className="flex-1 text-center">
+                        {show ? day : ""}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )
+          )}
         </div>
 
         <div className={`${panelClass} p-5 lg:col-span-2`}>
@@ -1163,48 +1460,85 @@ export default function QahwaComptabilitePage() {
               Aucune donnée à afficher.
             </p>
           ) : (
-            <ul className="mt-5 space-y-3">
-              {breakdown.slice(0, 6).map((item) => {
-                const active = filterCategory === item.value;
+            <>
+              <div className="mt-5 flex items-center gap-4">
+                <div
+                  className="relative h-28 w-28 shrink-0 rounded-full"
+                  style={{ background: donutBackground }}
+                  aria-hidden="true"
+                >
+                  <div className="absolute inset-[18px] flex flex-col items-center justify-center rounded-full bg-[#1B1B1B] text-center">
+                    <span className="text-sm font-bold leading-tight">
+                      {formatCompact(totalFiltered)}
+                    </span>
+                    <span className="text-[10px] text-white/40">DA</span>
+                  </div>
+                </div>
 
-                return (
-                  <li key={item.value}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setFilterCategory(active ? "" : item.value)
-                      }
-                      className="block w-full text-left"
+                <ul className="min-w-0 flex-1 space-y-2">
+                  {breakdown.slice(0, 3).map((item) => (
+                    <li
+                      key={item.value}
+                      className="flex items-center justify-between gap-2 text-xs"
                     >
-                      <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="flex min-w-0 items-center gap-2 text-white/70">
                         <span
-                          className={
-                            active ? "font-bold text-white" : "text-white/75"
-                          }
-                        >
-                          {item.label}
-                        </span>
-                        <span className="whitespace-nowrap text-xs text-white/50">
-                          {formatMoney(item.total)} ·{" "}
-                          {item.percent.toFixed(0)} %
-                        </span>
-                      </div>
-                      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/10">
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{
-                            width: `${item.percent}%`,
-                            backgroundColor: active
-                              ? ACCENT
-                              : "rgba(255,255,255,0.55)",
-                          }}
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: categoryColor(item.value) }}
                         />
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                        <span className="truncate">{item.label}</span>
+                      </span>
+                      <span className="font-semibold">
+                        {item.percent.toFixed(0)} %
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <ul className="mt-5 space-y-3">
+                {breakdown.slice(0, 6).map((item) => {
+                  const active = filterCategory === item.value;
+                  const color = categoryColor(item.value);
+
+                  return (
+                    <li key={item.value}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFilterCategory(active ? "" : item.value)
+                        }
+                        className="block w-full text-left"
+                      >
+                        <div className="flex items-center justify-between gap-3 text-sm">
+                          <span
+                            className={
+                              active ? "font-bold text-white" : "text-white/75"
+                            }
+                          >
+                            {item.label}
+                          </span>
+                          <span className="whitespace-nowrap text-xs text-white/50">
+                            {formatMoney(item.total)} ·{" "}
+                            {item.percent.toFixed(0)} %
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/10">
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${item.percent}%`,
+                              backgroundColor: color,
+                              opacity: active || !filterCategory ? 1 : 0.5,
+                            }}
+                          />
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
 
           {breakdown.length > 6 && (
@@ -1309,6 +1643,15 @@ export default function QahwaComptabilitePage() {
               className="h-4 w-4 accent-[#FF6B00]"
             />
             Afficher seulement les dépenses sans reçu
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                missingReceipts > 0
+                  ? "bg-amber-500/15 text-amber-300"
+                  : "bg-white/10 text-white/50"
+              }`}
+            >
+              {missingReceipts}
+            </span>
           </label>
         </div>
 
@@ -1371,9 +1714,7 @@ export default function QahwaComptabilitePage() {
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
                               <h3 className="font-semibold">{expense.title}</h3>
-                              <span className="rounded-full border border-white/15 px-2.5 py-1 text-xs text-white/65">
-                                {categoryLabel(expense.category)}
-                              </span>
+                              <CategoryBadge value={expense.category} />
                               {!expense.receipt_url && (
                                 <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300/80">
                                   Sans reçu
@@ -1480,6 +1821,26 @@ export default function QahwaComptabilitePage() {
         lui seul le bénéfice réel de Qahwa.
       </p>
 
+      {/* Bandeau « Annuler » après une suppression */}
+      {undoItem && (
+        <div
+          role="status"
+          className="fixed bottom-4 left-1/2 z-40 flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center justify-between gap-4 rounded-xl border border-white/15 bg-[#222222] px-4 py-3 text-sm shadow-2xl"
+        >
+          <span className="min-w-0 truncate text-white/80">
+            « {undoItem.title} » supprimée.
+          </span>
+          <button
+            type="button"
+            onClick={() => void undoDelete()}
+            className="shrink-0 font-bold underline underline-offset-4"
+            style={{ color: ACCENT }}
+          >
+            Annuler
+          </button>
+        </div>
+      )}
+
       {/* Fenêtre : ajout / modification */}
       {modalOpen && (
         <Modal
@@ -1494,6 +1855,32 @@ export default function QahwaComptabilitePage() {
                 className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300"
               >
                 {error}
+              </div>
+            )}
+
+            {!editingId && frequentExpenses.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs text-white/45">
+                  Dépenses fréquentes · un clic pour pré-remplir
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {frequentExpenses.map((expense) => (
+                    <button
+                      key={expense.id}
+                      type="button"
+                      onClick={() => applyTemplate(expense)}
+                      className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-white/80 transition hover:bg-white/10"
+                    >
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{
+                          backgroundColor: categoryColor(expense.category),
+                        }}
+                      />
+                      {expense.title}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1620,6 +2007,14 @@ export default function QahwaComptabilitePage() {
               </div>
             </div>
 
+            {possibleDuplicate && (
+              <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-200">
+                Une dépense identique existe déjà à cette date (
+                {formatMoney(Number(possibleDuplicate.amount))}). Vérifie que
+                ce n’est pas un doublon avant d’enregistrer.
+              </p>
+            )}
+
             <div className="flex flex-col-reverse gap-3 border-t border-white/10 pt-5 sm:flex-row sm:justify-end">
               <button
                 type="button"
@@ -1649,8 +2044,8 @@ export default function QahwaComptabilitePage() {
       {toDelete && (
         <Modal
           title="Supprimer cette dépense ?"
-          subtitle="Cette action est définitive."
-          onClose={() => (deleting ? undefined : setToDelete(null))}
+          subtitle="Tu pourras l’annuler pendant quelques secondes."
+          onClose={closeDelete}
           size="sm"
         >
           <div className="rounded-xl border border-white/10 bg-[#111111] p-4">
